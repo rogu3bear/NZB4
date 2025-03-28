@@ -1,81 +1,61 @@
-FROM ubuntu:22.04
+FROM python:3.10-slim
 
-# Prevent interactive prompts during installation
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV TZ=UTC
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Python, SABnzbd, FFmpeg, Transmission and other dependencies
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    python3-sabyenc \
-    python3-bs4 \
-    par2 \
-    unrar \
-    unzip \
+# Working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    curl \
-    git \
+    libmagic1 \
     transmission-cli \
-    transmission-daemon \
-    aria2 \
-    yt-dlp \
     wget \
-    jq \
+    curl \
+    netcat \
+    unzip \
+    p7zip-full \
+    sqlite3 \
+    nodejs \
+    npm \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python packages
-RUN pip3 install sabnzbd requests beautifulsoup4 lxml pyyaml qbittorrent-api flask psutil
+# Install n8n globally
+RUN npm install -g n8n
 
-# Create app directory
-WORKDIR /app
+# Copy requirements first for better caching
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy script and utils
-COPY *.py /app/
-COPY utils/ /app/utils/
-COPY templates/ /app/templates/
-COPY static/ /app/static/
-RUN chmod +x /app/*.py
+# Copy application code
+COPY . .
 
-# Create directories
-RUN mkdir -p /downloads /complete /config /nzb /torrents
+# Create necessary directories
+RUN mkdir -p /data/downloads /data/complete /data/temp /data/complete/movies /data/complete/tv /data/complete/music /data/complete/other /data/n8n
 
-# Set up configuration directories
-RUN mkdir -p /config/sabnzbd /config/transmission
+# Make sure scripts are executable
+RUN chmod +x /app/scripts/*.sh
 
-# Expose ports for SABnzbd, Transmission and web interface
-EXPOSE 8080 9091 5000
+# Run setup script
+RUN python -m nzb4.scripts.setup
 
-# Set volumes
-VOLUME ["/downloads", "/complete", "/config", "/nzb", "/torrents"]
+# Expose ports
+# Web UI
+EXPOSE 8000
+# N8N
+EXPOSE 5678
 
-# Create entrypoint script
-RUN echo '#!/bin/bash\n\
-# Start Transmission daemon in background\n\
-mkdir -p /config/transmission\n\
-transmission-daemon -g /config/transmission &\n\
-\n\
-# Set Transmission settings\n\
-sleep 3\n\
-SETTINGS="/config/transmission/settings.json"\n\
-if [ -f "$SETTINGS" ]; then\n\
-  service transmission-daemon stop\n\
-  jq ".\"download-dir\" = \"/downloads\"" "$SETTINGS" > /tmp/settings.json\n\
-  mv /tmp/settings.json "$SETTINGS"\n\
-  service transmission-daemon start\n\
-fi\n\
-\n\
-if [ "$1" = "sabnzbd" ]; then\n\
-  sabnzbd -b 0 -f /config/sabnzbd\n\
-elif [ "$1" = "convert" ]; then\n\
-  shift\n\
-  /app/media_converter.py "$@"\n\
-elif [ "$1" = "webui" ]; then\n\
-  python3 /app/web_interface.py\n\
-else\n\
-  exec "$@"\n\
-fi' > /entrypoint.sh && chmod +x /entrypoint.sh
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Entrypoint script
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
 
 # Default command
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["webui"] 
+CMD ["app"] 
