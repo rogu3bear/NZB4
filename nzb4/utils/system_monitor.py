@@ -7,8 +7,8 @@ import shutil
 from typing import Dict, Any, List, Optional
 
 # Import utilities
-from utils.database import get_setting, save_setting, log_event
-from utils.notifications import notify_disk_space_low, notify_system_error
+from nzb4.utils.database import get_setting, save_setting, log_event
+from nzb4.utils.notifications import notify_disk_space_low, notify_system_error
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

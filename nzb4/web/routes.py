@@ -28,6 +28,8 @@ from nzb4.utils.database import (
 )
 from nzb4.utils.notifications import notify, NOTIFICATION_TYPES
 from nzb4.utils.docker_manager import is_docker_installed, is_docker_running, start_docker, install_docker, get_docker_status, ensure_docker_running
+from nzb4.utils.n8n import N8nManager, is_n8n_installed, is_n8n_running, setup_n8n
+from nzb4.utils.n8n.templates import SETUP_TEMPLATE, PROCESSING_TEMPLATE
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -46,6 +48,7 @@ app.config['UPLOAD_FOLDER'] = os.path.join(UPLOADS_DIR, 'nzb')
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max upload
 app.config['ALLOWED_EXTENSIONS'] = {'nzb', 'torrent'}
 app.config['MIN_DISK_SPACE_MB'] = 500  # Minimum disk space required (MB)
+app.jinja_env.add_extension('jinja2.ext.do')
 
 # Thread safety for in-memory tracking
 active_processes = {}  # Track running processes
@@ -838,62 +841,169 @@ def server_error(error):
     return render_template('error.html', error='Server error occurred'), 500
 
 def setup_default_settings():
-    """Set up default settings if they don't exist"""
-    # Media output settings
-    if get_setting('default_output_format') is None:
-        update_setting('default_output_format', 'mp4')
-    if get_setting('video_quality') is None:
-        update_setting('video_quality', 'high')
-    if get_setting('default_media_type') is None:
-        update_setting('default_media_type', 'movie')
-    if get_setting('keep_original_default') is None:
-        update_setting('keep_original_default', 'false')
-    if get_setting('concurrent_conversions') is None:
-        update_setting('concurrent_conversions', '2')
-        
-    # Storage settings
-    if get_setting('movies_output_dir') is None:
-        update_setting('movies_output_dir', os.path.join(COMPLETE_DIR, 'movies'))
-    if get_setting('tv_output_dir') is None:
-        update_setting('tv_output_dir', os.path.join(COMPLETE_DIR, 'tv'))
-    if get_setting('music_output_dir') is None:
-        update_setting('music_output_dir', os.path.join(COMPLETE_DIR, 'music'))
-    if get_setting('min_disk_space_mb') is None:
-        update_setting('min_disk_space_mb', str(app.config['MIN_DISK_SPACE_MB']))
-    if get_setting('auto_cleanup_temp') is None:
-        update_setting('auto_cleanup_temp', 'true')
-        
-    # Network settings
-    if get_setting('download_speed_limit_kb') is None:
-        update_setting('download_speed_limit_kb', '0')
-    if get_setting('max_connections') is None:
-        update_setting('max_connections', '10')
-    if get_setting('retry_attempts') is None:
-        update_setting('retry_attempts', '3')
-    if get_setting('connection_timeout') is None:
-        update_setting('connection_timeout', '30')
-    if get_setting('proxy_url') is None:
-        update_setting('proxy_url', '')
-        
-    # UI settings
-    if get_setting('ui_theme') is None:
-        update_setting('ui_theme', 'dark')
-    if get_setting('jobs_per_page') is None:
-        update_setting('jobs_per_page', '20')
-    if get_setting('default_view') is None:
-        update_setting('default_view', 'active')
-        
-    # Ensure directories exist
-    movies_dir = get_setting('movies_output_dir')
-    tv_dir = get_setting('tv_output_dir')
-    music_dir = get_setting('music_output_dir')
+    """Setup default settings if not already configured"""
+    try:
+        # Only initialize if settings don't exist 
+        if get_setting('setup_completed') != 'true':
+            logger.info("Setting up default configuration")
+            
+            # Add n8n default settings
+            update_setting("n8n_data_dir", os.path.expanduser("~/n8n-data"))
+            update_setting("n8n_port", "5678")
+            update_setting("n8n_install_type", "docker")
+            update_setting("n8n_health_check_interval", "300")
+            
+            # Add all setup code above this line
+            
+            # Mark setup as completed
+            update_setting('setup_completed', 'true')
+            logger.info("Default settings configuration completed")
+    except Exception as e:
+        logger.error(f"Error setting up default configuration: {e}")
+    finally:
+        logger.debug("Finished setup_default_settings function")
+
+@app.route('/n8n/setup', methods=['GET', 'POST'])
+def n8n_setup():
+    """n8n setup page"""
+    # Initialize n8n manager
+    n8n = N8nManager()
     
-    os.makedirs(movies_dir, exist_ok=True)
-    os.makedirs(tv_dir, exist_ok=True)
-    os.makedirs(music_dir, exist_ok=True)
-    os.makedirs(os.path.join(COMPLETE_DIR, 'other'), exist_ok=True)
+    if request.method == 'POST':
+        # Get form data
+        data_dir = request.form.get('n8n_data_dir', os.path.expanduser("~/n8n-data"))
+        port = int(request.form.get('n8n_port', "5678"))
+        install_type = request.form.get('n8n_install_type', "docker")
+        action = request.form.get('action')
+        
+        # Save settings
+        update_setting("n8n_data_dir", data_dir)
+        update_setting("n8n_port", str(port))
+        update_setting("n8n_install_type", install_type)
+        
+        # Create n8n with updated settings
+        n8n = N8nManager(data_dir)
+        
+        # Handle requested action
+        if action == 'install':
+            threading.Thread(target=n8n.install, 
+                            args=(install_type == 'docker',), 
+                            daemon=True).start()
+            
+            # Render processing page
+            return render_template_string(
+                PROCESSING_TEMPLATE,
+                title="Installing n8n",
+                message="Installing n8n workflow automation. This may take a few minutes...",
+                redirect_url=url_for('n8n_setup')
+            )
+            
+        elif action == 'start':
+            threading.Thread(target=n8n.start, daemon=True).start()
+            
+            # Render processing page
+            return render_template_string(
+                PROCESSING_TEMPLATE,
+                title="Starting n8n",
+                message="Starting n8n workflow automation...",
+                redirect_url=url_for('n8n_setup')
+            )
+            
+        elif action == 'stop':
+            threading.Thread(target=n8n.stop, daemon=True).start()
+            
+            # Render processing page
+            return render_template_string(
+                PROCESSING_TEMPLATE,
+                title="Stopping n8n",
+                message="Stopping n8n workflow automation...",
+                redirect_url=url_for('n8n_setup')
+            )
+            
+        elif action == 'uninstall':
+            threading.Thread(target=n8n.uninstall, daemon=True).start()
+            
+            # Render processing page
+            return render_template_string(
+                PROCESSING_TEMPLATE,
+                title="Uninstalling n8n",
+                message="Uninstalling n8n workflow automation...",
+                redirect_url=url_for('n8n_setup')
+            )
+            
+        elif action == 'open':
+            # Redirect to n8n web interface
+            return redirect(f"http://localhost:{port}")
+        
+        # Redirect back to setup page for GET
+        return redirect(url_for('n8n_setup'))
     
-    logger.info("Default settings initialized")
+    # Get n8n status
+    status = n8n.get_status()
+    
+    # Prepare template variables
+    template_vars = {
+        "is_installed": status["installed"],
+        "installed_status": "Installed" if status["installed"] else "Not installed",
+        "installed_class": "status-on" if status["installed"] else "status-off",
+        "is_running": status["running"],
+        "running_status": "Running" if status["running"] else "Stopped",
+        "running_class": "status-on" if status["running"] else "status-off",
+        "version": status.get("version", "Unknown"),
+        "url": status["url"],
+        "data_dir": status["data_dir"],
+        "port": status["port"],
+        "install_type": status["install_type"],
+        "status_class": "status-success" if status["running"] else 
+                        "status-warning" if status["installed"] else
+                        "status-error"
+    }
+    
+    # Render setup page
+    return render_template_string(SETUP_TEMPLATE, **template_vars)
+
+@app.route('/api/n8n/status')
+def n8n_status_api():
+    """Get n8n status"""
+    n8n = N8nManager()
+    return jsonify(n8n.get_status())
+
+@app.route('/api/n8n/install', methods=['POST'])
+def n8n_install_api():
+    """Install n8n"""
+    data_dir = request.json.get('data_dir', os.path.expanduser("~/n8n-data"))
+    port = int(request.json.get('port', 5678))
+    use_docker = request.json.get('use_docker', True)
+    
+    # Update settings
+    update_setting("n8n_data_dir", data_dir)
+    update_setting("n8n_port", str(port))
+    update_setting("n8n_install_type", "docker" if use_docker else "npm")
+    
+    # Run in background thread
+    def install_thread():
+        n8n = N8nManager(data_dir)
+        success = n8n.install(use_docker)
+        if success:
+            n8n.start()
+    
+    threading.Thread(target=install_thread, daemon=True).start()
+    
+    return jsonify({"success": True, "message": "n8n installation started"})
+
+@app.route('/api/n8n/start', methods=['POST'])
+def n8n_start_api():
+    """Start n8n"""
+    n8n = N8nManager()
+    threading.Thread(target=n8n.start, daemon=True).start()
+    return jsonify({"success": True, "message": "n8n start initiated"})
+
+@app.route('/api/n8n/stop', methods=['POST'])
+def n8n_stop_api():
+    """Stop n8n"""
+    n8n = N8nManager()
+    threading.Thread(target=n8n.stop, daemon=True).start()
+    return jsonify({"success": True, "message": "n8n stop initiated"})
 
 # Schedule periodic cleanup
 def run_scheduled_cleanup():

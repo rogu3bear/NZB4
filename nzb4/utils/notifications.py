@@ -16,7 +16,7 @@ from email.mime.multipart import MIMEMultipart
 from typing import Dict, List, Any, Optional, Union
 from datetime import datetime
 
-from utils.database import get_setting, update_setting, add_notification, log_event
+from nzb4.utils.database import get_setting, update_setting, add_notification, log_event
 
 # Setup logging
 logger = logging.getLogger(__name__)

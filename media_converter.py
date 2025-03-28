@@ -17,11 +17,11 @@ import shutil
 from pathlib import Path
 
 # Import utility modules
-from utils.usenet import UsenetDownloader
-from utils.torrent import TorrentDownloader
-from utils.direct import DirectDownloader
-from utils.video import VideoConverter
-from utils.free_provider import FreeProviderFinder
+from nzb4.utils.usenet import UsenetDownloader
+from nzb4.utils.torrent import TorrentDownloader
+from nzb4.utils.direct import DirectDownloader
+from nzb4.utils.video import VideoConverter
+from nzb4.utils.free_provider import FreeProviderFinder
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)

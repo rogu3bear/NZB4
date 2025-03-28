@@ -11,7 +11,7 @@ APP = ['macos_app.py']
 DATA_FILES = [
     'templates',
     'static',
-    'utils',
+    'nzb4/utils',
     'web_interface.py',
     'Dockerfile',
     'docker-compose.yml',

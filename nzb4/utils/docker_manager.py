@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Docker management utilities for NZB4
+Docker management utilities
 Handles checking, starting and installing Docker on macOS
 """
 
