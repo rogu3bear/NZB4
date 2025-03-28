@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Status - Universal Media Converter</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Universal Media Converter</h1>
+            <p>Job Status</p>
+            <nav>
+                <a href="{{ url_for('index') }}" class="btn">Back to Home</a>
+            </nav>
+        </header>
+
+        <main>
+            <section class="card" id="job-details">
+                <h2>Job Status</h2>
+                <div class="job-info">
+                    <div id="job-header">
+                        <p class="loading">Loading job details...</p>
+                    </div>
+                    
+                    <div id="progress-container" class="hidden">
+                        <div id="progress-bar">
+                            <div id="progress-inner"></div>
+                        </div>
+                        <div id="status-text"></div>
+                    </div>
+                    
+                    <div id="job-meta" class="hidden">
+                        <dl>
+                            <dt>Media Source:</dt>
+                            <dd id="job-source"></dd>
+                            
+                            <dt>Media Type:</dt>
+                            <dd id="job-media-type"></dd>
+                            
+                            <dt>Output Format:</dt>
+                            <dd id="job-format"></dd>
+                            
+                            <dt>Started:</dt>
+                            <dd id="job-started"></dd>
+                        </dl>
+                    </div>
+                    
+                    <div id="job-result" class="hidden">
+                        <h3>Result</h3>
+                        <p id="result-message"></p>
+                        <div id="download-section" class="hidden">
+                            <button id="download-btn" class="btn primary">Download Output File</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <section class="card" id="console-output">
+                <h2>Console Output</h2>
+                <div class="console">
+                    <pre id="output-text"></pre>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Universal Media Converter | <a href="https://github.com/yourusername/media-converter" target="_blank" rel="noopener">GitHub</a></p>
+        </footer>
+    </div>
+
+    <script>
+        const JOB_ID = "{{ job_id }}";
+    </script>
+    <script src="{{ url_for('static', filename='js/job.js') }}"></script>
+</body>
+</html> 

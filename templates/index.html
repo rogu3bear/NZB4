@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Media Converter</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Universal Media Converter</h1>
+            <p>Convert media from various sources to your preferred format</p>
+            <nav>
+                <a href="{{ url_for('status_page') }}" class="btn">System Status</a>
+                <a href="{{ url_for('settings_page') }}" class="btn">Settings</a>
+                {% if platform and platform == 'Darwin' %}
+                <a href="{{ url_for('docker_management') }}" class="btn">Docker</a>
+                {% endif %}
+            </nav>
+        </header>
+
+        <main>
+            <section class="card">
+                <h2>New Conversion Job</h2>
+                <form id="convert-form">
+                    <div class="form-group">
+                        <label for="media-source">Media Source</label>
+                        <input type="text" id="media-source" name="media_source" placeholder="URL, search term, or local path" required>
+                        <p class="form-hint">Enter a URL, search term, or path to local file</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="file-upload">Or Upload File</label>
+                        <input type="file" id="file-upload" name="file">
+                        <p class="form-hint">Accepted formats: .nzb, .torrent</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="media-type">Media Type</label>
+                        <select id="media-type" name="media_type">
+                            <option value="movie">Movie</option>
+                            <option value="tv">TV Show</option>
+                            <option value="music">Music</option>
+                            <option value="other">Other</option>
+                        </select>
+                        <p class="form-hint">Used for organizing output files</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="output-format">Output Format</label>
+                        <select id="output-format" name="output_format">
+                            <option value="mp4">MP4</option>
+                            <option value="mov">MOV</option>
+                            <option value="mkv">MKV</option>
+                            <option value="webm">WebM</option>
+                            <option value="avi">AVI</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group checkbox">
+                        <input type="checkbox" id="keep-original" name="keep_original" value="true">
+                        <label for="keep-original">Keep Original Files</label>
+                    </div>
+                    
+                    <div class="form-controls">
+                        <button type="submit" class="btn primary">Start Conversion</button>
+                    </div>
+                </form>
+            </section>
+            
+            <section class="card" id="recent-jobs">
+                <h2>Recent Jobs</h2>
+                <div id="jobs-list">
+                    <p class="loading">Loading recent jobs...</p>
+                </div>
+                <div class="form-controls">
+                    <button id="refresh-jobs" class="btn">Refresh List</button>
+                </div>
+            </section>
+            
+            <section class="card" id="console-output" style="display: none;">
+                <h2>Conversion Progress</h2>
+                <div id="progress-container">
+                    <div id="progress-bar"></div>
+                </div>
+                <p id="status-text">Initializing...</p>
+                
+                <div class="console">
+                    <pre id="output-content"></pre>
+                </div>
+                
+                <div class="form-controls">
+                    <button id="cancel-job" class="btn danger">Cancel Conversion</button>
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>Universal Media Converter | <a href="https://github.com/yourusername/media-converter" target="_blank" rel="noopener">GitHub</a></p>
+        </footer>
+    </div>
+    
+    <div id="notification" class="notification hidden">
+        <span id="notification-message"></span>
+        <button id="notification-close">&times;</button>
+    </div>
+    
+    <script src="/static/js/app.js"></script>
+</body>
+</html> 

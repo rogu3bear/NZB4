@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error - Universal Media Converter</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Universal Media Converter</h1>
+            <p>Error Occurred</p>
+            <nav>
+                <a href="{{ url_for('index') }}" class="btn">Back to Home</a>
+            </nav>
+        </header>
+
+        <main>
+            <section class="card error-card">
+                <h2>Oops! Something went wrong</h2>
+                <div class="error-content">
+                    <div class="error-icon">⚠️</div>
+                    <p class="error-message">{{ error }}</p>
+                    <div class="error-actions">
+                        <a href="javascript:history.back()" class="btn">Go Back</a>
+                        <a href="{{ url_for('index') }}" class="btn primary">Return Home</a>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Universal Media Converter | <a href="https://github.com/yourusername/media-converter" target="_blank" rel="noopener">GitHub</a></p>
+        </footer>
+    </div>
+</body>
+</html> 

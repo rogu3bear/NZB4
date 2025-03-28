@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Universal Media Converter</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Universal Media Converter</h1>
+            <p>Configuration Settings</p>
+            <nav>
+                <a href="{{ url_for('index') }}" class="btn">Home</a>
+                <a href="{{ url_for('status_page') }}" class="btn">System Status</a>
+            </nav>
+        </header>
+
+        <main class="settings-page">
+            <section class="card settings-card" id="general-settings">
+                <h2>General Settings</h2>
+                <div class="settings-form">
+                    <div class="form-group">
+                        <label for="maintenance_interval_hours">Maintenance Interval (hours)</label>
+                        <input type="number" id="maintenance_interval_hours" name="maintenance_interval_hours" min="1" max="168">
+                        <p class="form-hint">How often to run maintenance tasks like cleanup of old jobs</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="job_retention_days">Job Retention (days)</label>
+                        <input type="number" id="job_retention_days" name="job_retention_days" min="1" max="365">
+                        <p class="form-hint">How long to keep completed or failed jobs before automatic cleanup</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="max_cpu_percent">Maximum CPU Usage (%)</label>
+                        <input type="number" id="max_cpu_percent" name="max_cpu_percent" min="10" max="100">
+                        <p class="form-hint">Maximum CPU usage before a job is terminated</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="max_memory_mb">Maximum Memory Usage (MB)</label>
+                        <input type="number" id="max_memory_mb" name="max_memory_mb" min="100" max="16384">
+                        <p class="form-hint">Maximum memory usage before a job is terminated</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <button type="button" id="save-general-settings" class="btn primary">Save General Settings</button>
+                        <button type="button" id="run-maintenance" class="btn">Run Maintenance Now</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Media Output Settings -->
+            <section class="card settings-card" id="media-output-settings">
+                <h2>Media Output Settings</h2>
+                <div class="settings-form">
+                    <div class="form-group">
+                        <label for="default_output_format">Default Output Format</label>
+                        <select id="default_output_format" name="default_output_format">
+                            <option value="mp4">MP4</option>
+                            <option value="mov">MOV</option>
+                            <option value="mkv">MKV</option>
+                            <option value="webm">WebM</option>
+                            <option value="avi">AVI</option>
+                        </select>
+                        <p class="form-hint">Default format for converted media</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="video_quality">Video Quality</label>
+                        <select id="video_quality" name="video_quality">
+                            <option value="high">High (1080p)</option>
+                            <option value="medium">Medium (720p)</option>
+                            <option value="low">Low (480p)</option>
+                            <option value="original">Original</option>
+                        </select>
+                        <p class="form-hint">Default video quality for conversions</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="default_media_type">Default Media Type</label>
+                        <select id="default_media_type" name="default_media_type">
+                            <option value="movie">Movie</option>
+                            <option value="tv">TV Show</option>
+                            <option value="music">Music</option>
+                            <option value="other">Other</option>
+                        </select>
+                        <p class="form-hint">Default media type for new conversion jobs</p>
+                    </div>
+
+                    <div class="form-group checkbox">
+                        <input type="checkbox" id="keep_original_default" name="keep_original_default">
+                        <label for="keep_original_default">Keep Original Files</label>
+                        <p class="form-hint">Default setting for keeping original files after conversion</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="concurrent_conversions">Max Concurrent Conversions</label>
+                        <input type="number" id="concurrent_conversions" name="concurrent_conversions" min="1" max="10">
+                        <p class="form-hint">Maximum number of conversion jobs to run simultaneously</p>
+                    </div>
+
+                    <div class="form-group">
+                        <button type="button" id="save-media-settings" class="btn primary">Save Media Settings</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Storage Settings -->
+            <section class="card settings-card" id="storage-settings">
+                <h2>Storage Settings</h2>
+                <div class="settings-form">
+                    <div class="form-group">
+                        <label for="movies_output_dir">Movies Directory</label>
+                        <input type="text" id="movies_output_dir" name="movies_output_dir">
+                        <p class="form-hint">Output directory for movie content</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tv_output_dir">TV Shows Directory</label>
+                        <input type="text" id="tv_output_dir" name="tv_output_dir">
+                        <p class="form-hint">Output directory for TV show content</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="music_output_dir">Music Directory</label>
+                        <input type="text" id="music_output_dir" name="music_output_dir">
+                        <p class="form-hint">Output directory for music content</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="min_disk_space_mb">Minimum Free Disk Space (MB)</label>
+                        <input type="number" id="min_disk_space_mb" name="min_disk_space_mb" min="100" max="10000">
+                        <p class="form-hint">Minimum required free disk space to start new jobs</p>
+                    </div>
+
+                    <div class="form-group checkbox">
+                        <input type="checkbox" id="auto_cleanup_temp" name="auto_cleanup_temp">
+                        <label for="auto_cleanup_temp">Auto-cleanup Temporary Files</label>
+                        <p class="form-hint">Automatically clean up temporary files after conversion</p>
+                    </div>
+
+                    <div class="form-group">
+                        <button type="button" id="save-storage-settings" class="btn primary">Save Storage Settings</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Network Settings -->
+            <section class="card settings-card" id="network-settings">
+                <h2>Network Settings</h2>
+                <div class="settings-form">
+                    <div class="form-group">
+                        <label for="download_speed_limit_kb">Download Speed Limit (KB/s)</label>
+                        <input type="number" id="download_speed_limit_kb" name="download_speed_limit_kb" min="0" max="100000">
+                        <p class="form-hint">Set to 0 for unlimited</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="max_connections">Maximum Connections</label>
+                        <input type="number" id="max_connections" name="max_connections" min="1" max="50">
+                        <p class="form-hint">Maximum simultaneous download connections</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="retry_attempts">Retry Attempts</label>
+                        <input type="number" id="retry_attempts" name="retry_attempts" min="0" max="10">
+                        <p class="form-hint">Number of retry attempts for failed downloads</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="connection_timeout">Connection Timeout (seconds)</label>
+                        <input type="number" id="connection_timeout" name="connection_timeout" min="5" max="300">
+                        <p class="form-hint">Connection timeout for downloads</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="proxy_url">Proxy URL (optional)</label>
+                        <input type="text" id="proxy_url" name="proxy_url">
+                        <p class="form-hint">Format: http://user:pass@host:port</p>
+                    </div>
+
+                    <div class="form-group">
+                        <button type="button" id="save-network-settings" class="btn primary">Save Network Settings</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- UI Settings -->
+            <section class="card settings-card" id="ui-settings">
+                <h2>User Interface Settings</h2>
+                <div class="settings-form">
+                    <div class="form-group">
+                        <label for="ui_theme">Theme</label>
+                        <select id="ui_theme" name="ui_theme">
+                            <option value="dark">Dark</option>
+                            <option value="light">Light</option>
+                            <option value="system">System Default</option>
+                        </select>
+                        <p class="form-hint">UI color theme preference</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="jobs_per_page">Jobs Per Page</label>
+                        <input type="number" id="jobs_per_page" name="jobs_per_page" min="5" max="100">
+                        <p class="form-hint">Number of jobs to display per page in job history</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="default_view">Default View</label>
+                        <select id="default_view" name="default_view">
+                            <option value="active">Active Jobs</option>
+                            <option value="recent">Recent Jobs</option>
+                            <option value="all">All Jobs</option>
+                        </select>
+                        <p class="form-hint">Default view for job history</p>
+                    </div>
+
+                    <div class="form-group">
+                        <button type="button" id="save-ui-settings" class="btn primary">Save UI Settings</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card settings-card" id="notification-settings">
+                <h2>Notification Settings</h2>
+                <div class="settings-form">
+                    <div class="form-group checkbox">
+                        <input type="checkbox" id="notifications_enabled" name="notifications_enabled">
+                        <label for="notifications_enabled">Enable Notifications</label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Notification Types</label>
+                        <div class="checkbox-group">
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="notify_job_started" name="notification_types" value="JOB_STARTED">
+                                <label for="notify_job_started">Job Started</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="notify_job_completed" name="notification_types" value="JOB_COMPLETED">
+                                <label for="notify_job_completed">Job Completed</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="notify_job_failed" name="notification_types" value="JOB_FAILED">
+                                <label for="notify_job_failed">Job Failed</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="notify_job_cancelled" name="notification_types" value="JOB_CANCELLED">
+                                <label for="notify_job_cancelled">Job Cancelled</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="notify_disk_space_low" name="notification_types" value="DISK_SPACE_LOW">
+                                <label for="notify_disk_space_low">Disk Space Low</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="notify_system_error" name="notification_types" value="SYSTEM_ERROR">
+                                <label for="notify_system_error">System Error</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="notify_system_startup" name="notification_types" value="SYSTEM_STARTUP">
+                                <label for="notify_system_startup">System Startup</label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <button type="button" id="save-notification-settings" class="btn primary">Save Notification Settings</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card settings-card" id="email-settings">
+                <h2>Email Notifications</h2>
+                <div class="settings-form">
+                    <div class="form-group checkbox">
+                        <input type="checkbox" id="email_notifications_enabled" name="email_notifications_enabled">
+                        <label for="email_notifications_enabled">Enable Email Notifications</label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="smtp_server">SMTP Server</label>
+                        <input type="text" id="smtp_server" name="smtp_server">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="smtp_port">SMTP Port</label>
+                        <input type="number" id="smtp_port" name="smtp_port" value="587">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="smtp_username">SMTP Username</label>
+                        <input type="text" id="smtp_username" name="smtp_username">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="smtp_password">SMTP Password</label>
+                        <input type="password" id="smtp_password" name="smtp_password">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="notification_from_email">From Email</label>
+                        <input type="email" id="notification_from_email" name="notification_from_email">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="email_recipients">Recipients (comma separated)</label>
+                        <input type="text" id="email_recipients" name="email_recipients">
+                    </div>
+                    
+                    <div class="form-group">
+                        <button type="button" id="save-email-settings" class="btn primary">Save Email Settings</button>
+                        <button type="button" id="test-email" class="btn">Test Email</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card settings-card" id="webhook-settings">
+                <h2>Webhook Notifications</h2>
+                <div class="settings-form">
+                    <div class="form-group checkbox">
+                        <input type="checkbox" id="webhook_notifications_enabled" name="webhook_notifications_enabled">
+                        <label for="webhook_notifications_enabled">Enable Webhook Notifications</label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="webhook_url">Webhook URL</label>
+                        <input type="text" id="webhook_url" name="webhook_url">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="webhook_headers">Custom Headers (JSON)</label>
+                        <textarea id="webhook_headers" name="webhook_headers" rows="4"></textarea>
+                        <p class="form-hint">JSON format, example: {"Authorization": "Bearer token"}</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="webhook_payload_template">Webhook Payload Template (JSON)</label>
+                        <textarea id="webhook_payload_template" name="webhook_payload_template" rows="8"></textarea>
+                        <p class="form-hint">Use {placeholders} for job data</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <button type="button" id="save-webhook-settings" class="btn primary">Save Webhook Settings</button>
+                        <button type="button" id="test-webhook" class="btn">Test Webhook</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Universal Media Converter | <a href="https://github.com/yourusername/media-converter" target="_blank" rel="noopener">GitHub</a></p>
+        </footer>
+    </div>
+
+    <div id="notification" class="notification hidden">
+        <span id="notification-message"></span>
+        <button id="notification-close">&times;</button>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+</body>
+</html> 

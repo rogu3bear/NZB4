@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup Configuration</title>
+</head>
+<body>
+    <h1>Setup Configuration</h1>
+    <form method="POST" action="/setup">
+        <div>
+            <label for="media_dir">Media Directory:</label>
+            <input type="text" id="media_dir" name="media_dir" required placeholder="/path/to/media">
+        </div>
+        <div>
+            <label for="output_format">Output Format:</label>
+            <select id="output_format" name="output_format">
+                <option value="mp4">MP4</option>
+                <option value="mov">MOV</option>
+                <option value="mkv">MKV</option>
+                <option value="webm">WEBM</option>
+                <option value="avi">AVI</option>
+            </select>
+        </div>
+        <div>
+            <label for="video_quality">Video Quality:</label>
+            <select id="video_quality" name="video_quality">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+            </select>
+        </div>
+        <div>
+            <button type="submit">Save Settings</button>
+        </div>
+    </form>
+</body>
+</html> 

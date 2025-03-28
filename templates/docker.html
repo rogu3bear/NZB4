@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker Management - Universal Media Converter</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Docker Management</h1>
+            <p>Manage Docker for Universal Media Converter</p>
+            <nav>
+                <a href="{{ url_for('index') }}" class="btn">Home</a>
+                <a href="{{ url_for('status_page') }}" class="btn">System Status</a>
+                <a href="{{ url_for('settings_page') }}" class="btn">Settings</a>
+            </nav>
+        </header>
+        
+        <main>
+            {% if message %}
+            <div class="alert alert-{{ message.type }}">
+                {{ message.text }}
+            </div>
+            {% endif %}
+            
+            <section class="card">
+                <h2>Docker Status</h2>
+                
+                <div class="status-row">
+                    <span class="status-label">Docker Installed:</span>
+                    <span class="status-value {% if docker_status.installed %}status-good{% else %}status-danger{% endif %}">
+                        {% if docker_status.installed %}Yes{% else %}No{% endif %}
+                    </span>
+                </div>
+                
+                <div class="status-row">
+                    <span class="status-label">Docker Running:</span>
+                    <span class="status-value {% if docker_status.running %}status-good{% else %}status-danger{% endif %}">
+                        {% if docker_status.running %}Yes{% else %}No{% endif %}
+                    </span>
+                </div>
+                
+                {% if docker_status.installed and docker_status.running %}
+                <div class="status-row">
+                    <span class="status-label">Docker Version:</span>
+                    <span class="status-value">{{ docker_status.version or 'Unknown' }}</span>
+                </div>
+                
+                <div class="status-row">
+                    <span class="status-label">Running Containers:</span>
+                    <span class="status-value">{{ docker_status.containers.running }}</span>
+                </div>
+                
+                <div class="status-row">
+                    <span class="status-label">Total Containers:</span>
+                    <span class="status-value">{{ docker_status.containers.total }}</span>
+                </div>
+                {% endif %}
+                
+                <div class="form-controls">
+                    {% if not docker_status.installed %}
+                    <form method="POST">
+                        <input type="hidden" name="action" value="install">
+                        <button type="submit" class="btn primary">Install Docker</button>
+                    </form>
+                    <p class="hint">This will install Docker via Homebrew and Colima (lightweight Docker backend)</p>
+                    {% elif not docker_status.running %}
+                    <form method="POST">
+                        <input type="hidden" name="action" value="start">
+                        <button type="submit" class="btn primary">Start Docker</button>
+                    </form>
+                    {% else %}
+                    <p class="status-good">Docker is installed and running properly.</p>
+                    {% endif %}
+                </div>
+            </section>
+            
+            <section class="card">
+                <h2>About Docker</h2>
+                <p>Docker is required to run the Universal Media Converter. It provides the containerization necessary to handle media conversion efficiently and securely.</p>
+                
+                <h3>What's Being Installed</h3>
+                <ul>
+                    <li><strong>Docker CLI</strong> - The Docker command line interface</li>
+                    <li><strong>Docker Compose</strong> - For managing multi-container applications</li>
+                    <li><strong>Colima</strong> - A lightweight Docker Desktop alternative for macOS</li>
+                </ul>
+                
+                <p>The installation is done via Homebrew, which is the recommended package manager for macOS.</p>
+                
+                <h3>Manual Installation</h3>
+                <p>If the automatic installation fails, you can manually install Docker:</p>
+                <ol>
+                    <li>Install Homebrew: <code>/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"</code></li>
+                    <li>Install Docker CLI: <code>brew install docker docker-compose</code></li>
+                    <li>Install Colima: <code>brew install colima</code></li>
+                    <li>Start Colima: <code>colima start</code></li>
+                </ol>
+            </section>
+        </main>
+        
+        <footer>
+            <p>Universal Media Converter | <a href="https://github.com/yourusername/media-converter" target="_blank" rel="noopener">GitHub</a></p>
+        </footer>
+    </div>
+    
+    <script>
+        // Auto-refresh Docker status every 10 seconds if not running
+        {% if not docker_status.running %}
+        setTimeout(function() {
+            window.location.reload();
+        }, 10000);
+        {% endif %}
+    </script>
+</body>
+</html> 

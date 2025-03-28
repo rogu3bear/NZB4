@@ -1,0 +1,48 @@
+version: '3'
+
+services:
+  media-converter:
+    build: .
+    container_name: media-converter
+    ports:
+      # Bind to localhost for improved security
+      - "127.0.0.1:8080:8080"  # SABnzbd web interface
+      - "127.0.0.1:9091:9091"  # Transmission web interface
+      - "127.0.0.1:5000:5000"  # Media Converter web interface
+    volumes:
+      - ./nzb:/nzb
+      - ./torrents:/torrents
+      - ${DOWNLOAD_DIR:-./downloads}:/downloads
+      - ${COMPLETE_DIR:-./complete}:/complete
+      - ./config:/config
+      # Add media folders for organizing content by type
+      - ${MOVIES_DIR:-./complete/movies}:/media/movies
+      - ${TV_DIR:-./complete/tv}:/media/tv
+      - ${MUSIC_DIR:-./complete/music}:/media/music
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+      - PYTHONUNBUFFERED=1  # Ensure logs are output properly
+    # Resource limits to prevent container from using too much of host resources
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'  # Limit to 2 CPUs
+          memory: 2G   # Limit to 2GB RAM
+    # Security settings
+    security_opt:
+      - no-new-privileges:true  # Prevent privilege escalation
+    # Health check to ensure service is running properly
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # By default, starts the web interface
+    # Access at http://localhost:5000
+    # 
+    # To use command line:
+    # docker-compose exec media-converter convert "movie name"
+    # Or search and convert:
+    # docker-compose exec media-converter convert "movie name" 
