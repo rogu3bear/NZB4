@@ -1,137 +1,214 @@
 #!/bin/bash
-# Media Converter Helper Script
-# Makes it easy to target specific output folders
+# NZB4 Media Converter - Helper Script
+# This script simplifies common operations for the NZB4 containerized application
 
-# Default settings
-CONTENT_NAME=""
-CONTENT_TYPE="movie"  # Default type is movie
-OUTPUT_FORMAT="mp4"   # Default output format
-QUALITY="high"        # Default quality
+# Set colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Default directories
+COMPLETE_DIR="./complete"
+DOWNLOADS_DIR="./downloads"
+
+# Detect OS for platform-specific adjustments
+OS="$(uname -s)"
+case "${OS}" in
+    Linux*)     OS_TYPE=linux;;
+    Darwin*)    OS_TYPE=macos;;
+    CYGWIN*)    OS_TYPE=windows;;
+    MINGW*)     OS_TYPE=windows;;
+    *)          OS_TYPE=unknown
+esac
+
+# Banner function
+show_banner() {
+    echo -e "${BLUE}"
+    echo "=================================================="
+    echo "  NZB4 Universal Media Converter - Helper Script  "
+    echo "=================================================="
+    echo -e "${NC}"
+}
 
 # Help function
-function show_help {
-    echo "NZB4 - Universal Media Converter"
-    echo "--------------------------------"
-    echo "Usage: ./run.sh [options] \"content name or path\""
+show_help() {
+    echo -e "${GREEN}Available commands:${NC}"
+    echo "  setup       - Create required directories and set permissions"
+    echo "  start       - Start all services in detached mode"
+    echo "  stop        - Stop all services"
+    echo "  restart     - Restart all services"
+    echo "  status      - Show status of all services"
+    echo "  logs        - View logs (press Ctrl+C to exit)"
+    echo "  logs-flask  - View logs for Flask API only"
+    echo "  logs-express- View logs for Express API only"
+    echo "  build       - Rebuild all containers"
+    echo "  clean       - Remove stopped containers and unused images"
+    echo "  reset       - Remove all containers, volumes, and reset directories"
+    echo "  help        - Show this help message"
     echo ""
-    echo "Options:"
-    echo "  -t, --type TYPE       Set content type (movie, tv, music, ebook)"
-    echo "  -f, --format FORMAT   Set output format (mp4, mkv, mp3, etc.)"
-    echo "  -q, --quality QUALITY Set quality (low, medium, high, ultra, original)"
-    echo "  -k, --keep            Keep original files after conversion"
-    echo "  -h, --help            Show this help message"
+    echo -e "${YELLOW}Examples:${NC}"
+    echo "  ./run.sh setup"
+    echo "  ./run.sh start"
+    echo "  ./run.sh logs-flask"
     echo ""
-    echo "Examples:"
-    echo "  ./run.sh \"Movie Title\"                     # Convert movie with default settings"
-    echo "  ./run.sh -t tv \"TV Show S01E01\"           # Convert TV episode"
-    echo "  ./run.sh -t music -f mp3 \"Artist - Song\"  # Convert music to MP3"
-    echo "  ./run.sh -f mkv -q ultra \"Movie Title\"    # Convert to MKV at ultra quality"
-    echo ""
-    echo "Docker Commands:"
-    echo "  ./run.sh start          # Start NZB4 services"
-    echo "  ./run.sh stop           # Stop NZB4 services"
-    echo "  ./run.sh restart        # Restart NZB4 services"
-    echo "  ./run.sh logs           # View logs"
-    echo "  ./run.sh n8n            # Start N8N service only"
-    echo ""
-    echo "Web Interface: http://localhost:8000"
-    echo "N8N Interface: http://localhost:5678"
 }
 
-# Docker service management functions
-function start_services {
-    docker-compose up -d
-    echo "NZB4 services started!"
-    echo "Web Interface: http://localhost:8000"
-    echo "N8N Interface: http://localhost:5678"
+# Setup function - create directories and set permissions
+setup_directories() {
+    echo -e "${BLUE}Setting up required directories...${NC}"
+    
+    # Create directories if they don't exist
+    mkdir -p "$COMPLETE_DIR"
+    mkdir -p "$DOWNLOADS_DIR"
+    
+    # Set permissions based on platform
+    if [ "$OS_TYPE" = "linux" ]; then
+        echo -e "${YELLOW}Setting Linux permissions...${NC}"
+        chmod 755 "$COMPLETE_DIR" "$DOWNLOADS_DIR"
+        
+        # Export current user UID/GID for docker-compose
+        export UID=$(id -u)
+        export GID=$(id -g)
+        
+        echo -e "${GREEN}Directories created with UID:$UID and GID:$GID${NC}"
+    elif [ "$OS_TYPE" = "macos" ]; then
+        echo -e "${YELLOW}Setting macOS permissions...${NC}"
+        chmod 755 "$COMPLETE_DIR" "$DOWNLOADS_DIR"
+        echo -e "${GREEN}Directories created with default permissions${NC}"
+        echo -e "${YELLOW}Note: On macOS, Docker Desktop manages permissions automatically${NC}"
+    else
+        echo -e "${YELLOW}Setting generic permissions...${NC}"
+        chmod 755 "$COMPLETE_DIR" "$DOWNLOADS_DIR"
+        echo -e "${YELLOW}Note: You may need to adjust permissions manually for your OS${NC}"
+    fi
+    
+    # Create subdirectories for better organization
+    mkdir -p "$COMPLETE_DIR/movies" "$COMPLETE_DIR/tv" "$COMPLETE_DIR/music" "$COMPLETE_DIR/other"
+    
+    echo -e "${GREEN}Setup complete!${NC}"
 }
 
-function stop_services {
-    docker-compose down
-    echo "NZB4 services stopped!"
+# Check if Docker and Docker Compose are installed
+check_prerequisites() {
+    echo -e "${BLUE}Checking prerequisites...${NC}"
+    
+    # Check for docker
+    if ! command -v docker &> /dev/null; then
+        echo -e "${RED}Error: Docker is not installed or not in PATH${NC}"
+        echo "Please install Docker first: https://docs.docker.com/get-docker/"
+        exit 1
+    fi
+    
+    # Check for docker-compose
+    if ! command -v docker-compose &> /dev/null; then
+        echo -e "${YELLOW}Warning: docker-compose not found. Checking Docker Compose plugin...${NC}"
+        if ! docker compose version &> /dev/null; then
+            echo -e "${RED}Error: Docker Compose not available${NC}"
+            echo "Please install Docker Compose: https://docs.docker.com/compose/install/"
+            exit 1
+        fi
+        USE_DOCKER_COMPOSE_PLUGIN=true
+        echo -e "${GREEN}Using Docker Compose plugin${NC}"
+    else
+        USE_DOCKER_COMPOSE_PLUGIN=false
+        echo -e "${GREEN}Using docker-compose command${NC}"
+    fi
+    
+    echo -e "${GREEN}All prerequisites are installed!${NC}"
 }
 
-function show_logs {
-    docker-compose logs -f
+# Run docker-compose with the appropriate command format
+run_compose() {
+    if [ "$USE_DOCKER_COMPOSE_PLUGIN" = true ]; then
+        docker compose "$@"
+    else
+        docker-compose "$@"
+    fi
 }
 
-# Parse command-line arguments
-KEEP_ORIGINAL=false
-COMMAND_ARGS=""
+# Main execution
+show_banner
 
-# Check for service commands first
-if [ "$1" == "start" ]; then
-    start_services
-    exit 0
-elif [ "$1" == "stop" ]; then
-    stop_services
-    exit 0
-elif [ "$1" == "restart" ]; then
-    stop_services
-    start_services
-    exit 0
-elif [ "$1" == "logs" ]; then
-    show_logs
-    exit 0
-elif [ "$1" == "n8n" ]; then
-    docker-compose exec nzb4 n8n
-    exit 0
-fi
-
-# Parse content conversion options
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        -t|--type)
-            CONTENT_TYPE="$2"
-            shift 2
-            ;;
-        -f|--format)
-            OUTPUT_FORMAT="$2"
-            shift 2
-            ;;
-        -q|--quality)
-            QUALITY="$2"
-            shift 2
-            ;;
-        -k|--keep)
-            KEEP_ORIGINAL=true
-            shift
-            ;;
-        *)
-            CONTENT_NAME="$1"
-            shift
-            ;;
-    esac
-done
-
-# Check if content name is provided
-if [ -z "$CONTENT_NAME" ]; then
-    echo "Error: No content name or path provided!"
-    show_help
-    exit 1
-fi
-
-# Build command arguments
-COMMAND_ARGS="--type $CONTENT_TYPE --format $OUTPUT_FORMAT --quality $QUALITY"
-
-if [ "$KEEP_ORIGINAL" == "true" ]; then
-    COMMAND_ARGS="$COMMAND_ARGS --keep-original"
-fi
-
-# Make sure services are running
-if ! docker-compose ps | grep -q "nzb4.*Up"; then
-    echo "NZB4 services are not running. Starting..."
-    start_services
-fi
-
-# Run the conversion
-echo "Converting: $CONTENT_NAME"
-echo "Type: $CONTENT_TYPE, Format: $OUTPUT_FORMAT, Quality: $QUALITY"
-docker-compose exec nzb4 cli convert $COMMAND_ARGS "$CONTENT_NAME"
-
-echo ""
-echo "Job submitted! Track progress at http://localhost:8000" 
+# Process command
+case "$1" in
+    setup)
+        check_prerequisites
+        setup_directories
+        ;;
+    start)
+        check_prerequisites
+        # Export UID/GID on Linux
+        if [ "$OS_TYPE" = "linux" ]; then
+            export UID=$(id -u)
+            export GID=$(id -g)
+        fi
+        echo -e "${BLUE}Starting services...${NC}"
+        run_compose up -d
+        echo -e "${GREEN}Services started!${NC}"
+        echo -e "${YELLOW}Flask API: http://localhost:5000${NC}"
+        echo -e "${YELLOW}Express API: http://localhost:3000${NC}"
+        ;;
+    stop)
+        echo -e "${BLUE}Stopping services...${NC}"
+        run_compose down
+        echo -e "${GREEN}Services stopped${NC}"
+        ;;
+    restart)
+        echo -e "${BLUE}Restarting services...${NC}"
+        run_compose restart
+        echo -e "${GREEN}Services restarted${NC}"
+        ;;
+    status)
+        echo -e "${BLUE}Checking service status...${NC}"
+        run_compose ps
+        ;;
+    logs)
+        echo -e "${BLUE}Viewing logs (Ctrl+C to exit)...${NC}"
+        run_compose logs -f
+        ;;
+    logs-flask)
+        echo -e "${BLUE}Viewing Flask API logs (Ctrl+C to exit)...${NC}"
+        run_compose logs -f flask-api
+        ;;
+    logs-express)
+        echo -e "${BLUE}Viewing Express API logs (Ctrl+C to exit)...${NC}"
+        run_compose logs -f express-api
+        ;;
+    build)
+        check_prerequisites
+        # Export UID/GID on Linux
+        if [ "$OS_TYPE" = "linux" ]; then
+            export UID=$(id -u)
+            export GID=$(id -g)
+        fi
+        echo -e "${BLUE}Building containers...${NC}"
+        run_compose build --no-cache
+        echo -e "${GREEN}Build complete${NC}"
+        ;;
+    clean)
+        echo -e "${BLUE}Cleaning up Docker resources...${NC}"
+        run_compose down --remove-orphans
+        echo -e "${YELLOW}Removing dangling images...${NC}"
+        docker image prune -f
+        echo -e "${GREEN}Cleanup complete${NC}"
+        ;;
+    reset)
+        echo -e "${RED}WARNING: This will remove all containers, volumes, and reset directories.${NC}"
+        read -p "Are you sure you want to proceed? (y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}Resetting everything...${NC}"
+            run_compose down -v --remove-orphans
+            echo -e "${YELLOW}Removing data directories...${NC}"
+            rm -rf "$COMPLETE_DIR" "$DOWNLOADS_DIR"
+            echo -e "${YELLOW}Setting up fresh directories...${NC}"
+            setup_directories
+            echo -e "${GREEN}Reset complete${NC}"
+        fi
+        ;;
+    help|*)
+        show_help
+        ;;
+esac 

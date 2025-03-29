@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NZB4 Universal Media Converter - Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2c3e50;
+            --success-color: #2ecc71;
+            --danger-color: #e74c3c;
+            --warning-color: #f39c12;
+            --info-color: #1abc9c;
+        }
+        body {
+            padding-top: 56px;
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .navbar-brand {
+            font-weight: bold;
+        }
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border: none;
+            border-radius: 8px;
+        }
+        .card-header {
+            background-color: var(--secondary-color);
+            color: white;
+            font-weight: bold;
+            border-radius: 8px 8px 0 0 !important;
+        }
+        .badge-status {
+            font-size: 0.9rem;
+            padding: 0.5rem 0.75rem;
+        }
+        .status-running {
+            background-color: var(--success-color);
+        }
+        .status-stopped {
+            background-color: var(--danger-color);
+        }
+        .status-pending {
+            background-color: var(--warning-color);
+        }
+        .btn-action {
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+        .log-container {
+            background-color: #1e1e1e;
+            color: #f0f0f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', Courier, monospace;
+            height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+        .log-line {
+            margin-bottom: 3px;
+        }
+        .log-line.info {
+            color: #4fc3f7;
+        }
+        .log-line.error {
+            color: #ff8a80;
+        }
+        .log-line.warning {
+            color: #ffd54f;
+        }
+        .service-icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        .resource-usage {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .quick-actions {
+            margin-bottom: 20px;
+        }
+        .guide-step {
+            margin-bottom: 15px;
+        }
+        .guide-step .num {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background-color: var(--primary-color);
+            color: white;
+            text-align: center;
+            border-radius: 50%;
+            margin-right: 10px;
+            font-weight: bold;
+            line-height: 30px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="bi bi-film"></i> NZB4 Universal Media Converter
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#dashboard">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#services">Services</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#logs">Logs</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#settings">Settings</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#help">Help</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container my-4">
+        <!-- System Status Overview -->
+        <div id="dashboard" class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>System Status</span>
+                        <button class="btn btn-sm btn-light" id="refreshStatus" aria-label="Refresh status">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 col-lg-3 text-center">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <i class="bi bi-server service-icon text-primary"></i>
+                                        <h5>Flask API</h5>
+                                        <span class="badge badge-status status-running">Running</span>
+                                        <p class="mt-2 mb-0">Port: 5000</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 col-lg-3 text-center">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <i class="bi bi-server service-icon text-success"></i>
+                                        <h5>Express API</h5>
+                                        <span class="badge badge-status status-running">Running</span>
+                                        <p class="mt-2 mb-0">Port: 3000</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 col-lg-3 text-center">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <i class="bi bi-hdd-rack service-icon text-warning"></i>
+                                        <h5>Storage</h5>
+                                        <div class="resource-usage">75%</div>
+                                        <div class="progress mt-2">
+                                            <div class="progress-bar bg-warning" role="progressbar" style="width: 75%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 col-lg-3 text-center">
+                                <div class="card">
+                                    <div class="card-body">
+                                        <i class="bi bi-cpu service-icon text-info"></i>
+                                        <h5>CPU Usage</h5>
+                                        <div class="resource-usage">25%</div>
+                                        <div class="progress mt-2">
+                                            <div class="progress-bar bg-info" role="progressbar" style="width: 25%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="row quick-actions">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <span>Quick Actions</span>
+                    </div>
+                    <div class="card-body">
+                        <button class="btn btn-success btn-action" id="startAll">
+                            <i class="bi bi-play-fill"></i> Start All
+                        </button>
+                        <button class="btn btn-danger btn-action" id="stopAll">
+                            <i class="bi bi-stop-fill"></i> Stop All
+                        </button>
+                        <button class="btn btn-warning btn-action" id="restartAll">
+                            <i class="bi bi-arrow-clockwise"></i> Restart All
+                        </button>
+                        <button class="btn btn-info btn-action" id="openFlask">
+                            <i class="bi bi-box-arrow-up-right"></i> Open Flask API
+                        </button>
+                        <button class="btn btn-info btn-action" id="openExpress">
+                            <i class="bi bi-box-arrow-up-right"></i> Open Express API
+                        </button>
+                        <button class="btn btn-secondary btn-action" id="viewLogs">
+                            <i class="bi bi-journal-text"></i> View All Logs
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Service Details -->
+        <div id="services" class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Flask API Service</span>
+                        <span class="badge badge-status status-running">Running</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <strong>Endpoint:</strong> http://localhost:5000
+                        </div>
+                        <div class="mb-3">
+                            <strong>Health Status:</strong> <span class="text-success">Healthy</span>
+                        </div>
+                        <div class="mb-3">
+                            <strong>Container ID:</strong> 8a7d6e5f4c3b2a1
+                        </div>
+                        <div class="mb-3">
+                            <strong>Image:</strong> nzb4-flask-api:latest
+                        </div>
+                        <div class="d-grid gap-2 d-md-flex">
+                            <button class="btn btn-success btn-sm">
+                                <i class="bi bi-play-fill"></i> Start
+                            </button>
+                            <button class="btn btn-danger btn-sm">
+                                <i class="bi bi-stop-fill"></i> Stop
+                            </button>
+                            <button class="btn btn-warning btn-sm">
+                                <i class="bi bi-arrow-clockwise"></i> Restart
+                            </button>
+                            <button class="btn btn-primary btn-sm">
+                                <i class="bi bi-journal-text"></i> Logs
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Express API Service</span>
+                        <span class="badge badge-status status-running">Running</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <strong>Endpoint:</strong> http://localhost:3000
+                        </div>
+                        <div class="mb-3">
+                            <strong>Health Status:</strong> <span class="text-success">Healthy</span>
+                        </div>
+                        <div class="mb-3">
+                            <strong>Container ID:</strong> 1a2b3c4d5e6f7g8
+                        </div>
+                        <div class="mb-3">
+                            <strong>Image:</strong> nzb4-express-api:latest
+                        </div>
+                        <div class="d-grid gap-2 d-md-flex">
+                            <button class="btn btn-success btn-sm">
+                                <i class="bi bi-play-fill"></i> Start
+                            </button>
+                            <button class="btn btn-danger btn-sm">
+                                <i class="bi bi-stop-fill"></i> Stop
+                            </button>
+                            <button class="btn btn-warning btn-sm">
+                                <i class="bi bi-arrow-clockwise"></i> Restart
+                            </button>
+                            <button class="btn btn-primary btn-sm">
+                                <i class="bi bi-journal-text"></i> Logs
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Section -->
+        <div id="logs" class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Logs</span>
+                        <div>
+                            <select class="form-select form-select-sm d-inline me-2" style="width: auto;" aria-label="Select service logs to display">
+                                <option>All Services</option>
+                                <option>Flask API</option>
+                                <option>Express API</option>
+                            </select>
+                            <button class="btn btn-sm btn-light" aria-label="Refresh logs">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                            <button class="btn btn-sm btn-primary">
+                                <i class="bi bi-download"></i> Export
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="log-container">
+                            <div class="log-line info">2023-12-15 10:30:15 - flask-api - INFO - Starting Flask API on 0.0.0.0:5000</div>
+                            <div class="log-line info">2023-12-15 10:30:16 - express-api - INFO - Starting Express API on 0.0.0.0:3000</div>
+                            <div class="log-line info">2023-12-15 10:30:17 - flask-api - INFO - Database connection established</div>
+                            <div class="log-line warning">2023-12-15 10:30:18 - express-api - WARN - Default configuration used, no config file found</div>
+                            <div class="log-line info">2023-12-15 10:30:20 - flask-api - INFO - Healthcheck passed</div>
+                            <div class="log-line info">2023-12-15 10:30:25 - express-api - INFO - Healthcheck passed</div>
+                            <div class="log-line info">2023-12-15 10:31:15 - flask-api - INFO - Received request: GET /status</div>
+                            <div class="log-line info">2023-12-15 10:31:15 - flask-api - INFO - Request completed: 200 OK</div>
+                            <div class="log-line info">2023-12-15 10:32:20 - express-api - INFO - Received request: GET /status</div>
+                            <div class="log-line info">2023-12-15 10:32:20 - express-api - INFO - Request completed: 200 OK</div>
+                            <div class="log-line info">2023-12-15 10:35:10 - flask-api - INFO - Received request: POST /convert</div>
+                            <div class="log-line error">2023-12-15 10:35:10 - flask-api - ERROR - Invalid request payload: missing source_path</div>
+                            <div class="log-line info">2023-12-15 10:35:10 - flask-api - INFO - Request completed: 400 Bad Request</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Help & Quick Start Guide -->
+        <div id="help" class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">Quick Start Guide</div>
+                    <div class="card-body">
+                        <div class="guide-step">
+                            <span class="num">1</span>
+                            <strong>Set up directories</strong> - Run <code>./run.sh setup</code> or <code>make setup</code> to create the required directories with proper permissions.
+                        </div>
+                        <div class="guide-step">
+                            <span class="num">2</span>
+                            <strong>Start services</strong> - Run <code>./run.sh start</code> or <code>make start</code> to launch all services.
+                        </div>
+                        <div class="guide-step">
+                            <span class="num">3</span>
+                            <strong>Check service status</strong> - Verify all services are running with <code>./run.sh status</code> or <code>make status</code>.
+                        </div>
+                        <div class="guide-step">
+                            <span class="num">4</span>
+                            <strong>Use the APIs</strong> - Access Flask API at <a href="http://localhost:5000">http://localhost:5000</a> or Express API at <a href="http://localhost:3000">http://localhost:3000</a>.
+                        </div>
+                        <div class="guide-step">
+                            <span class="num">5</span>
+                            <strong>View logs</strong> - Monitor service logs with <code>./run.sh logs</code> or <code>make logs</code>.
+                        </div>
+                        <div class="alert alert-info mt-3">
+                            <i class="bi bi-info-circle-fill me-2"></i>
+                            For more information, refer to the <a href="#" class="alert-link">documentation</a> or run <code>./run.sh help</code>.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-white text-center py-4 mt-4">
+        <div class="container">
+            <p class="mb-0">NZB4 Universal Media Converter &copy; 2023</p>
+            <small>Version 1.0.0</small>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // This is where you'd add event listeners for the buttons
+            // and fetch real data from your backend API
+            
+            // Example for refresh button
+            document.getElementById('refreshStatus').addEventListener('click', function() {
+                alert('Refreshing status...');
+                // In a real app, you'd fetch data from your API endpoints
+            });
+            
+            // Quick action buttons
+            document.getElementById('startAll').addEventListener('click', function() {
+                alert('Starting all services...');
+                // In a real app, you'd call an API endpoint to start services
+            });
+            
+            document.getElementById('stopAll').addEventListener('click', function() {
+                if (confirm('Are you sure you want to stop all services?')) {
+                    alert('Stopping all services...');
+                    // In a real app, you'd call an API endpoint to stop services
+                }
+            });
+            
+            document.getElementById('restartAll').addEventListener('click', function() {
+                if (confirm('Are you sure you want to restart all services?')) {
+                    alert('Restarting all services...');
+                    // In a real app, you'd call an API endpoint to restart services
+                }
+            });
+            
+            document.getElementById('openFlask').addEventListener('click', function() {
+                window.open('http://localhost:5000', '_blank');
+            });
+            
+            document.getElementById('openExpress').addEventListener('click', function() {
+                window.open('http://localhost:3000', '_blank');
+            });
+            
+            document.getElementById('viewLogs').addEventListener('click', function() {
+                // Scroll to logs section
+                document.getElementById('logs').scrollIntoView({ behavior: 'smooth' });
+            });
+        });
+    </script>
+</body>
+</html> 

@@ -1,0 +1,40 @@
+# Stage 1: Build stage
+FROM python:3.9-slim as builder
+WORKDIR /app
+
+# Install build dependencies and copy requirements
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install --target=/install -r requirements.txt
+
+# Stage 2: Production image
+FROM python:3.9-slim
+WORKDIR /app
+
+# Copy installed packages from builder stage
+COPY --from=builder /install /usr/local/lib/python3.9/site-packages
+
+# Copy application code
+COPY . .
+
+# Environment variables for runtime configuration
+ENV FLASK_APP=app.py
+ENV FLASK_RUN_HOST=0.0.0.0
+ENV OUTPUT_DIR=/complete
+ENV DOWNLOAD_DIR=/downloads
+
+# Ensure required directories exist
+RUN mkdir -p ${OUTPUT_DIR} ${DOWNLOAD_DIR}
+
+# Create non-root user for least privilege, but allow mapped volume control
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN addgroup --gid ${USER_GID} appgroup && adduser --disabled-password --gecos '' --uid ${USER_UID} --ingroup appgroup appuser
+
+USER appuser
+
+# Healthcheck to verify service status
+HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:5000/status || exit 1
+
+EXPOSE 5000
+
+CMD ["flask", "run"] 

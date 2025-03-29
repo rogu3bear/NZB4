@@ -1,0 +1,39 @@
+# Stage 1: Build stage
+FROM node:18-slim as builder
+WORKDIR /app
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm install --production
+
+# Stage 2: Production image
+FROM node:18-slim
+WORKDIR /app
+
+# Copy node modules and application code from builder stage
+COPY --from=builder /app/node_modules ./node_modules
+COPY . .
+
+# Environment variables
+ENV PORT=3000
+ENV HOST=0.0.0.0
+ENV OUTPUT_DIR=/complete
+ENV DOWNLOAD_DIR=/downloads
+
+# Ensure required directories exist
+RUN mkdir -p ${OUTPUT_DIR} ${DOWNLOAD_DIR}
+
+# Create non-root user for least privilege, but allow volume mappings
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN addgroup --gid ${USER_GID} appgroup && \
+    adduser --disabled-password --gecos '' --uid ${USER_UID} --ingroup appgroup appuser
+
+USER appuser
+
+# Healthcheck to verify service status (assumes /status endpoint on Express app)
+HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:${PORT}/status || exit 1
+
+EXPOSE ${PORT}
+
+CMD [ "npm", "start" ] 

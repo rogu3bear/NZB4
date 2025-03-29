@@ -1,630 +1,535 @@
 #!/usr/bin/env python3
 """
-N8N integration for media service.
-This module provides integration between the media service and N8N workflows.
+N8N Integration module for media services.
+
+This module provides integration with N8N for workflow automation 
+and external API integrations.
 """
 
 import os
-import logging
 import json
-import requests
-from typing import Dict, Any, List, Optional, Union
-from datetime import datetime
+import urllib.request
+import urllib.parse
+import urllib.error
+import logging
+import hmac
+import hashlib
 import time
+from typing import Dict, List, Any, Optional, Union
+from datetime import datetime
 
-from nzb4.domain.media.entities import Media, ConversionJob, ConversionStatus
-from nzb4.domain.media.repositories import MediaRepository, ConversionJobRepository
-from nzb4.domain.media.services import MediaService
-from nzb4.infrastructure.n8n.n8n_manager import N8nManager
+from nzb4.application.media.security import SecurityValidator
 from nzb4.config.settings import config
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Default N8N endpoint
+DEFAULT_N8N_HOST = os.environ.get('N8N_HOST', 'localhost')
+DEFAULT_N8N_PORT = os.environ.get('N8N_PORT', '5678')
+DEFAULT_N8N_URL = f"http://{DEFAULT_N8N_HOST}:{DEFAULT_N8N_PORT}"
+
+# N8N API credentials from env vars
+N8N_API_KEY = os.environ.get('N8N_API_KEY', '')
+N8N_WEBHOOK_SECRET = os.environ.get('N8N_WEBHOOK_SECRET', '')
+
+# Encrypted API key storage if env not set
+ENCRYPTED_API_KEYS = {}
+if not N8N_API_KEY and not N8N_WEBHOOK_SECRET:
+    # Create a default encrypted key if not available
+    salt = os.environ.get('N8N_SALT', None)
+    default_key = SecurityValidator.secure_random_string(32)
+    ENCRYPTED_API_KEYS['n8n_api_key'] = SecurityValidator.encrypt_api_key(default_key, salt)
+    
+    # Log key generation for initial setup only
+    logger.info(f"Generated default N8N API key: {default_key} - save this for your workflows")
+
 
 class MediaN8nIntegration:
-    """
-    Integration between media service and N8N automation platform.
-    Provides webhooks and callbacks for workflow automation.
-    """
+    """Integration with N8N for workflow automation"""
     
-    def __init__(
-        self,
-        media_service: MediaService,
-        media_repo: MediaRepository,
-        job_repo: ConversionJobRepository,
-        n8n_manager: N8nManager
-    ):
-        self.media_service = media_service
-        self.media_repo = media_repo
-        self.job_repo = job_repo
-        self.n8n_manager = n8n_manager
-        
-        # Ensure N8N is running if enabled
-        if config.n8n.enabled:
-            self._ensure_n8n_running()
-    
-    def _ensure_n8n_running(self) -> bool:
+    def __init__(self, 
+                n8n_url: Optional[str] = None, 
+                api_key: Optional[str] = None,
+                webhook_secret: Optional[str] = None):
         """
-        Ensure N8N is running and available
+        Initialize N8N integration
         
+        Args:
+            n8n_url: URL for N8N server (defaults to environment variable)
+            api_key: API key for N8N (defaults to environment variable)
+            webhook_secret: Secret for webhook verification (defaults to environment variable)
+        """
+        self.n8n_url = n8n_url or DEFAULT_N8N_URL
+        self.api_key = api_key or N8N_API_KEY
+        self.webhook_secret = webhook_secret or N8N_WEBHOOK_SECRET
+        
+        # Validate URL
+        is_valid, error = SecurityValidator.validate_url(self.n8n_url)
+        if not is_valid:
+            logger.warning(f"Invalid N8N URL: {error}")
+    
+    def trigger_workflow(self, 
+                       workflow_id: str, 
+                       payload: Dict[str, Any],
+                       webhook_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Trigger a workflow in N8N
+        
+        Args:
+            workflow_id: ID of the workflow to trigger
+            payload: Data to send to the workflow
+            webhook_path: Custom webhook path (if not using ID directly)
+            
         Returns:
-            bool: True if running, False otherwise
+            Dict: Response from N8N
         """
         try:
-            if not self.n8n_manager.is_running():
-                logger.info("Starting N8N service...")
-                return self.n8n_manager.start()
-            return True
+            # Construct webhook URL
+            if webhook_path:
+                webhook_url = f"{self.n8n_url}/webhook/{webhook_path}"
+            else:
+                webhook_url = f"{self.n8n_url}/webhook/{workflow_id}"
+            
+            # Add security timestamp to payload
+            payload['_timestamp'] = int(time.time())
+                        
+            # Create request
+            headers = {
+                "Content-Type": "application/json"
+            }
+            
+            # Add API key authentication if available
+            if self.api_key:
+                headers["X-N8N-API-KEY"] = self.api_key
+            
+            # Add signature if webhook secret is available
+            if self.webhook_secret:
+                data_str = json.dumps(payload, sort_keys=True)
+                signature = hmac.new(
+                    self.webhook_secret.encode('utf-8'),
+                    data_str.encode('utf-8'),
+                    hashlib.sha256
+                ).hexdigest()
+                headers["X-N8N-Signature"] = signature
+            
+            # Convert payload to JSON
+            data = json.dumps(payload).encode('utf-8')
+            
+            # Create request
+            req = urllib.request.Request(
+                webhook_url,
+                data=data,
+                headers=headers,
+                method="POST"
+            )
+            
+            # Send request
+            with urllib.request.urlopen(req, timeout=10) as response:
+                response_data = response.read().decode('utf-8')
+                
+                # Parse response if it's JSON
+                try:
+                    return json.loads(response_data)
+                except json.JSONDecodeError:
+                    return {"success": True, "raw_response": response_data}
+        
+        except urllib.error.HTTPError as e:
+            error_msg = e.read().decode('utf-8') if hasattr(e, 'read') else str(e)
+            logger.error(f"HTTP error triggering workflow: {error_msg}")
+            return {"success": False, "error": f"HTTP error: {e.code}", "message": error_msg}
+        
         except Exception as e:
-            logger.error(f"Error ensuring N8N is running: {e}")
+            logger.error(f"Error triggering workflow: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def verify_webhook_request(self, 
+                             headers: Dict[str, str], 
+                             raw_body: str) -> bool:
+        """
+        Verify a webhook request signature
+        
+        Args:
+            headers: Request headers
+            raw_body: Raw request body
+            
+        Returns:
+            bool: True if signature is valid
+        """
+        try:
+            if not self.webhook_secret:
+                # If no webhook secret is configured, we can't verify
+                logger.warning("No webhook secret configured, skipping signature verification")
+                return True
+            
+            # Get signature from headers
+            signature = headers.get('X-N8N-Signature')
+            if not signature:
+                logger.warning("No signature in webhook request")
+                return False
+            
+            # Calculate expected signature
+            expected_signature = hmac.new(
+                self.webhook_secret.encode('utf-8'),
+                raw_body.encode('utf-8'),
+                hashlib.sha256
+            ).hexdigest()
+            
+            # Constant-time comparison to prevent timing attacks
+            return hmac.compare_digest(signature, expected_signature)
+            
+        except Exception as e:
+            logger.error(f"Error verifying webhook request: {e}")
             return False
     
-    def register_webhook_workflows(self) -> Dict[str, Any]:
+    def validate_api_key(self, provided_key: str) -> bool:
         """
-        Register default webhook workflows in N8N
+        Validate an API key
         
+        Args:
+            provided_key: API key to validate
+            
         Returns:
-            Dict: Result information
+            bool: True if API key is valid
         """
-        try:
-            if not self._ensure_n8n_running():
-                return {"error": "N8N service is not running"}
-            
-            results = {
-                "created": [],
-                "errors": []
-            }
-            
-            # Create job status webhook workflow
-            job_status_workflow = self._create_job_status_workflow()
-            if "error" not in job_status_workflow:
-                results["created"].append({
-                    "name": "Media Job Status Notification",
-                    "id": job_status_workflow.get("id"),
-                    "webhook_url": job_status_workflow.get("webhook_url")
-                })
-            else:
-                results["errors"].append({
-                    "workflow": "Media Job Status Notification",
-                    "error": job_status_workflow.get("error")
-                })
-            
-            # Create media detection workflow
-            media_detection_workflow = self._create_media_detection_workflow()
-            if "error" not in media_detection_workflow:
-                results["created"].append({
-                    "name": "Media Content Detection",
-                    "id": media_detection_workflow.get("id"),
-                    "webhook_url": media_detection_workflow.get("webhook_url")
-                })
-            else:
-                results["errors"].append({
-                    "workflow": "Media Content Detection",
-                    "error": media_detection_workflow.get("error")
-                })
-            
-            return results
+        # Compare with environment variable if set
+        if N8N_API_KEY:
+            return hmac.compare_digest(provided_key, N8N_API_KEY)
         
-        except Exception as e:
-            logger.error(f"Error registering webhook workflows: {e}")
-            return {"error": str(e)}
+        # Check against encrypted storage
+        if 'n8n_api_key' in ENCRYPTED_API_KEYS:
+            return SecurityValidator.verify_api_key(
+                provided_key, 
+                ENCRYPTED_API_KEYS['n8n_api_key']
+            )
+        
+        # No API key configured
+        logger.warning("No API key configured for validation")
+        return False
     
-    def _create_job_status_workflow(self) -> Dict[str, Any]:
+    def notify_job_status(self, 
+                         job_id: str, 
+                         status: str, 
+                         details: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Create a job status notification workflow in N8N
-        
-        Returns:
-            Dict: Workflow information
-        """
-        try:
-            # Define the workflow structure for job status notifications
-            workflow_data = {
-                "name": "Media Job Status Notification",
-                "active": True,
-                "nodes": [
-                    {
-                        "parameters": {
-                            "httpMethod": "POST",
-                            "path": "job-status",
-                            "options": {}
-                        },
-                        "name": "Webhook",
-                        "type": "n8n-nodes-base.webhook",
-                        "position": [100, 300]
-                    },
-                    {
-                        "parameters": {
-                            "conditions": {
-                                "string": [
-                                    {
-                                        "value1": "={{ $json.status }}",
-                                        "operation": "equal",
-                                        "value2": "COMPLETED"
-                                    }
-                                ]
-                            }
-                        },
-                        "name": "IF",
-                        "type": "n8n-nodes-base.if",
-                        "position": [340, 300]
-                    },
-                    {
-                        "parameters": {
-                            "toEmail": "={{ $json.notification_email }}",
-                            "subject": "Media Job Completed",
-                            "text": "=Your media conversion job has completed successfully.\n\nJob ID: {{ $json.job_id }}\nStatus: {{ $json.status }}\nMedia: {{ $json.media.title || $json.media.source }}\nOutput Path: {{ $json.media.output_path }}"
-                        },
-                        "name": "Send Email",
-                        "type": "n8n-nodes-base.emailSend",
-                        "position": [540, 240]
-                    },
-                    {
-                        "parameters": {
-                            "url": "={{ $json.webhook_url }}",
-                            "options": {},
-                            "method": "POST",
-                            "bodyParametersUi": {
-                                "parameter": [
-                                    {
-                                        "name": "job_id",
-                                        "value": "={{ $json.job_id }}"
-                                    },
-                                    {
-                                        "name": "status",
-                                        "value": "={{ $json.status }}"
-                                    },
-                                    {
-                                        "name": "completed_at",
-                                        "value": "={{ $json.completed_at }}"
-                                    }
-                                ]
-                            }
-                        },
-                        "name": "HTTP Request",
-                        "type": "n8n-nodes-base.httpRequest",
-                        "position": [540, 400]
-                    }
-                ],
-                "connections": {
-                    "Webhook": {
-                        "main": [
-                            [
-                                {
-                                    "node": "IF",
-                                    "type": "main",
-                                    "index": 0
-                                }
-                            ]
-                        ]
-                    },
-                    "IF": {
-                        "main": [
-                            [
-                                {
-                                    "node": "Send Email",
-                                    "type": "main",
-                                    "index": 0
-                                }
-                            ],
-                            [
-                                {
-                                    "node": "HTTP Request",
-                                    "type": "main",
-                                    "index": 0
-                                }
-                            ]
-                        ]
-                    }
-                }
-            }
-            
-            # Create the workflow in N8N
-            result = self.n8n_manager.create_workflow(workflow_data)
-            
-            # Get the webhook URL for this workflow
-            if "id" in result:
-                webhook_url = self.n8n_manager.check_webhook_url(result["id"])
-                if webhook_url:
-                    result["webhook_url"] = webhook_url
-            
-            return result
-        
-        except Exception as e:
-            logger.error(f"Error creating job status workflow: {e}")
-            return {"error": str(e)}
-    
-    def _create_media_detection_workflow(self) -> Dict[str, Any]:
-        """
-        Create a media content detection workflow in N8N
-        
-        Returns:
-            Dict: Workflow information
-        """
-        try:
-            # Define the workflow structure for media detection
-            workflow_data = {
-                "name": "Media Content Detection",
-                "active": True,
-                "nodes": [
-                    {
-                        "parameters": {
-                            "httpMethod": "POST",
-                            "path": "detect-media",
-                            "options": {}
-                        },
-                        "name": "Webhook",
-                        "type": "n8n-nodes-base.webhook",
-                        "position": [100, 300]
-                    },
-                    {
-                        "parameters": {
-                            "url": "https://www.omdbapi.com",
-                            "options": {},
-                            "queryParametersUi": {
-                                "parameter": [
-                                    {
-                                        "name": "apikey",
-                                        "value": "={{ $env.OMDB_API_KEY }}"
-                                    },
-                                    {
-                                        "name": "t",
-                                        "value": "={{ $json.title }}"
-                                    },
-                                    {
-                                        "name": "y",
-                                        "value": "={{ $json.year }}"
-                                    }
-                                ]
-                            }
-                        },
-                        "name": "Lookup Media",
-                        "type": "n8n-nodes-base.httpRequest",
-                        "position": [340, 300]
-                    },
-                    {
-                        "parameters": {
-                            "conditions": {
-                                "string": [
-                                    {
-                                        "value1": "={{ $json.Response }}",
-                                        "operation": "equal",
-                                        "value2": "True"
-                                    }
-                                ]
-                            }
-                        },
-                        "name": "IF",
-                        "type": "n8n-nodes-base.if",
-                        "position": [540, 300]
-                    },
-                    {
-                        "parameters": {
-                            "url": "={{ $json.callback_url }}",
-                            "options": {},
-                            "method": "POST",
-                            "bodyParametersUi": {
-                                "parameter": [
-                                    {
-                                        "name": "media_id",
-                                        "value": "={{ $node.Webhook.json.media_id }}"
-                                    },
-                                    {
-                                        "name": "metadata",
-                                        "value": "={{ $json }}"
-                                    },
-                                    {
-                                        "name": "success",
-                                        "value": "true"
-                                    }
-                                ]
-                            }
-                        },
-                        "name": "Success Callback",
-                        "type": "n8n-nodes-base.httpRequest",
-                        "position": [740, 240]
-                    },
-                    {
-                        "parameters": {
-                            "url": "={{ $node.Webhook.json.callback_url }}",
-                            "options": {},
-                            "method": "POST",
-                            "bodyParametersUi": {
-                                "parameter": [
-                                    {
-                                        "name": "media_id",
-                                        "value": "={{ $node.Webhook.json.media_id }}"
-                                    },
-                                    {
-                                        "name": "error",
-                                        "value": "Media not found"
-                                    },
-                                    {
-                                        "name": "success",
-                                        "value": "false"
-                                    }
-                                ]
-                            }
-                        },
-                        "name": "Error Callback",
-                        "type": "n8n-nodes-base.httpRequest",
-                        "position": [740, 400]
-                    }
-                ],
-                "connections": {
-                    "Webhook": {
-                        "main": [
-                            [
-                                {
-                                    "node": "Lookup Media",
-                                    "type": "main",
-                                    "index": 0
-                                }
-                            ]
-                        ]
-                    },
-                    "Lookup Media": {
-                        "main": [
-                            [
-                                {
-                                    "node": "IF",
-                                    "type": "main",
-                                    "index": 0
-                                }
-                            ]
-                        ]
-                    },
-                    "IF": {
-                        "main": [
-                            [
-                                {
-                                    "node": "Success Callback",
-                                    "type": "main",
-                                    "index": 0
-                                }
-                            ],
-                            [
-                                {
-                                    "node": "Error Callback",
-                                    "type": "main",
-                                    "index": 0
-                                }
-                            ]
-                        ]
-                    }
-                }
-            }
-            
-            # Create the workflow in N8N
-            result = self.n8n_manager.create_workflow(workflow_data)
-            
-            # Get the webhook URL for this workflow
-            if "id" in result:
-                webhook_url = self.n8n_manager.check_webhook_url(result["id"])
-                if webhook_url:
-                    result["webhook_url"] = webhook_url
-            
-            return result
-        
-        except Exception as e:
-            logger.error(f"Error creating media detection workflow: {e}")
-            return {"error": str(e)}
-    
-    def notify_job_status_change(self, job_id: str) -> bool:
-        """
-        Notify N8N workflow of job status change
+        Send job status notification to N8N
         
         Args:
             job_id: ID of the job
+            status: Status of the job
+            details: Job details
             
         Returns:
-            bool: True if notification sent, False otherwise
+            Dict: Response from N8N
         """
         try:
-            # Get job data
-            job = self.job_repo.get_by_id(job_id)
-            if not job:
-                logger.error(f"Job not found: {job_id}")
-                return False
-            
-            # Get media data
-            media = self.media_repo.get_by_id(job.media_id)
-            if not media:
-                logger.error(f"Media not found for job: {job_id}")
-                return False
-            
-            # Check if N8N is running
-            if not self._ensure_n8n_running():
-                logger.error("N8N service is not running")
-                return False
-            
-            # Get workflows
-            workflows = self.n8n_manager.get_workflows()
-            
-            # Find job status workflow
-            job_status_workflow = None
-            for workflow in workflows:
-                if workflow.get("name") == "Media Job Status Notification":
-                    job_status_workflow = workflow
-                    break
-            
-            if not job_status_workflow:
-                logger.warning("Job status workflow not found in N8N")
-                return False
-            
-            # Get webhook URL
-            webhook_url = self.n8n_manager.check_webhook_url(job_status_workflow["id"])
-            if not webhook_url:
-                logger.error("Could not get webhook URL for job status workflow")
-                return False
-            
-            # Prepare notification data
-            notification_data = {
-                "job_id": job.id,
-                "media_id": media.id,
-                "status": job.status.name,
-                "created_at": job.created_at.isoformat(),
-                "started_at": job.started_at.isoformat() if job.started_at else None,
-                "completed_at": job.completed_at.isoformat() if job.completed_at else None,
-                "error_message": job.error_message,
-                "media": {
-                    "source": media.source,
-                    "type": media.media_type.name,
-                    "title": media.metadata.title if media.metadata and media.metadata.title else None,
-                    "output_path": media.output_path
-                },
-                "webhook_url": None,  # Optional webhook for further notifications
-                "notification_email": None  # Optional email for notifications
+            # Create payload
+            payload = {
+                "event_type": "job_status",
+                "job_id": job_id,
+                "status": status,
+                "timestamp": datetime.now().isoformat(),
+                "details": details
             }
             
-            # Send notification to N8N webhook
-            response = requests.post(
-                webhook_url,
-                json=notification_data,
-                timeout=10
+            # Trigger notification workflow
+            return self.trigger_workflow(
+                "job_status_notification",  # Standard workflow name
+                payload
             )
-            
-            if response.status_code < 200 or response.status_code >= 300:
-                logger.error(f"Error notifying job status: HTTP {response.status_code}")
-                return False
-            
-            logger.info(f"Job status notification sent for job {job_id}")
-            return True
         
         except Exception as e:
-            logger.error(f"Error notifying job status change: {e}")
-            return False
+            logger.error(f"Error sending job status notification: {e}")
+            return {"success": False, "error": str(e)}
     
-    def request_media_detection(self, media_id: str, title: str, year: Optional[int] = None) -> Dict[str, Any]:
+    def notify_media_ready(self, 
+                          job_id: str, 
+                          media_info: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Request media detection from N8N workflow
+        Send media ready notification to N8N
         
         Args:
-            media_id: ID of the media
-            title: Media title
-            year: Media year
+            job_id: ID of the job
+            media_info: Information about the ready media
             
         Returns:
-            Dict: Result information
+            Dict: Response from N8N
         """
         try:
-            # Get media data
-            media = self.media_repo.get_by_id(media_id)
-            if not media:
-                logger.error(f"Media not found: {media_id}")
-                return {"error": "Media not found"}
-            
-            # Check if N8N is running
-            if not self._ensure_n8n_running():
-                logger.error("N8N service is not running")
-                return {"error": "N8N service is not running"}
-            
-            # Get workflows
-            workflows = self.n8n_manager.get_workflows()
-            
-            # Find media detection workflow
-            detection_workflow = None
-            for workflow in workflows:
-                if workflow.get("name") == "Media Content Detection":
-                    detection_workflow = workflow
-                    break
-            
-            if not detection_workflow:
-                logger.warning("Media detection workflow not found in N8N")
-                return {"error": "Media detection workflow not found"}
-            
-            # Get webhook URL
-            webhook_url = self.n8n_manager.check_webhook_url(detection_workflow["id"])
-            if not webhook_url:
-                logger.error("Could not get webhook URL for media detection workflow")
-                return {"error": "Could not get webhook URL"}
-            
-            # Create a callback URL (would be implemented in a real app)
-            callback_url = f"http://{config.network.host}:{config.network.port}/api/media/{media_id}/detection-callback"
-            
-            # Prepare detection request data
-            request_data = {
-                "media_id": media.id,
-                "title": title,
-                "year": year,
-                "callback_url": callback_url
+            # Create payload
+            payload = {
+                "event_type": "media_ready",
+                "job_id": job_id,
+                "timestamp": datetime.now().isoformat(),
+                "media_info": media_info
             }
             
-            # Send request to N8N webhook
-            response = requests.post(
-                webhook_url,
-                json=request_data,
-                timeout=10
+            # Trigger notification workflow
+            return self.trigger_workflow(
+                "media_ready_notification",  # Standard workflow name
+                payload
+            )
+        
+        except Exception as e:
+            logger.error(f"Error sending media ready notification: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def notify_error(self, 
+                    job_id: Optional[str], 
+                    error_msg: str,
+                    error_type: str,
+                    details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Send error notification to N8N
+        
+        Args:
+            job_id: Optional ID of the job
+            error_msg: Error message
+            error_type: Type of error
+            details: Optional details about the error
+            
+        Returns:
+            Dict: Response from N8N
+        """
+        try:
+            # Create payload
+            payload = {
+                "event_type": "error",
+                "error_type": error_type,
+                "error_message": error_msg,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Add job ID if available
+            if job_id:
+                payload["job_id"] = job_id
+            
+            # Add details if available
+            if details:
+                payload["details"] = details
+            
+            # Trigger notification workflow
+            return self.trigger_workflow(
+                "error_notification",  # Standard workflow name
+                payload
+            )
+        
+        except Exception as e:
+            logger.error(f"Error sending error notification: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def fetch_workflow_templates(self) -> Dict[str, Any]:
+        """
+        Fetch available workflow templates from N8N
+        
+        Returns:
+            Dict: Available templates
+        """
+        try:
+            # Construct API URL
+            api_url = f"{self.n8n_url}/api/v1/workflows/templates"
+            
+            # Create request
+            headers = {}
+            if self.api_key:
+                headers["X-N8N-API-KEY"] = self.api_key
+            
+            # Send request
+            req = urllib.request.Request(
+                api_url,
+                headers=headers,
+                method="GET"
             )
             
-            if response.status_code < 200 or response.status_code >= 300:
-                logger.error(f"Error requesting media detection: HTTP {response.status_code}")
-                return {"error": f"HTTP error: {response.status_code}"}
+            # Execute request
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = response.read().decode('utf-8')
+                return json.loads(data)
+        
+        except Exception as e:
+            logger.error(f"Error fetching workflow templates: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def create_media_detection_workflow(self, name: str) -> Dict[str, Any]:
+        """
+        Create a new media detection workflow in N8N
+        
+        Args:
+            name: Name for the workflow
             
-            logger.info(f"Media detection requested for media {media_id}")
+        Returns:
+            Dict: Created workflow information
+        """
+        try:
+            # Add timestamp to ensure unique name
+            timestamp = datetime.now().strftime("%Y%m%d%H%M")
+            workflow_name = f"{name}_{timestamp}"
+            
+            # Create workflow definition
+            # This is a simplified template - in a real app, you'd have
+            # complete workflow definitions stored as templates
+            workflow_def = {
+                "name": workflow_name,
+                "active": False,
+                "nodes": [
+                    {
+                        "name": "Start",
+                        "type": "n8n-nodes-base.webhook",
+                        "position": [250, 300],
+                        "parameters": {
+                            "path": workflow_name.lower().replace(" ", "_"),
+                            "options": {
+                                "responseMode": "lastNode"
+                            }
+                        }
+                    },
+                    {
+                        "name": "Media Detection Function",
+                        "type": "n8n-nodes-base.function",
+                        "position": [490, 300],
+                        "parameters": {
+                            "functionCode": "// Media detection logic\n// In a real workflow, this would contain\n// actual detection code or API calls\nreturn {\n  json: {\n    detected: true,\n    media_type: 'movie',\n    confidence: 0.95,\n    metadata: {\n      title: 'Example Movie',\n      year: 2023\n    }\n  }\n};"
+                        }
+                    },
+                    {
+                        "name": "Response",
+                        "type": "n8n-nodes-base.respondToWebhook",
+                        "position": [730, 300],
+                        "parameters": {}
+                    }
+                ],
+                "connections": {
+                    "Start": {
+                        "main": [
+                            [
+                                {
+                                    "node": "Media Detection Function",
+                                    "type": "main",
+                                    "index": 0
+                                }
+                            ]
+                        ]
+                    },
+                    "Media Detection Function": {
+                        "main": [
+                            [
+                                {
+                                    "node": "Response",
+                                    "type": "main",
+                                    "index": 0
+                                }
+                            ]
+                        ]
+                    }
+                }
+            }
+            
+            # Construct API URL
+            api_url = f"{self.n8n_url}/api/v1/workflows"
+            
+            # Create request
+            headers = {
+                "Content-Type": "application/json"
+            }
+            if self.api_key:
+                headers["X-N8N-API-KEY"] = self.api_key
+            
+            # Convert workflow definition to JSON
+            data = json.dumps(workflow_def).encode('utf-8')
+            
+            # Send request
+            req = urllib.request.Request(
+                api_url,
+                data=data,
+                headers=headers,
+                method="POST"
+            )
+            
+            # Execute request
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = response.read().decode('utf-8')
+                return json.loads(data)
+        
+        except Exception as e:
+            logger.error(f"Error creating workflow: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def get_health_status(self) -> Dict[str, Any]:
+        """
+        Get health status of N8N
+        
+        Returns:
+            Dict: Health status
+        """
+        try:
+            # Construct API URL - using public endpoint that doesn't require auth
+            api_url = f"{self.n8n_url}/healthz"
+            
+            # Create request
+            req = urllib.request.Request(
+                api_url,
+                method="GET"
+            )
+            
+            # Execute request
+            with urllib.request.urlopen(req, timeout=5) as response:
+                if response.getcode() == 200:
+                    return {
+                        "status": "healthy",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                else:
+                    return {
+                        "status": "unhealthy",
+                        "code": response.getcode(),
+                        "timestamp": datetime.now().isoformat()
+                    }
+        
+        except Exception as e:
+            logger.error(f"Error checking N8N health: {e}")
+            return {
+                "status": "unreachable",
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
+    
+    def rotate_api_key(self) -> Dict[str, Any]:
+        """
+        Generate a new API key and invalidate the old one
+        
+        Returns:
+            Dict: New API key information
+        """
+        try:
+            # Generate new secure key
+            new_key = SecurityValidator.secure_random_string(32)
+            
+            # Get salt
+            salt = os.environ.get('N8N_SALT', None)
+            
+            # Encrypt and store
+            ENCRYPTED_API_KEYS['n8n_api_key'] = SecurityValidator.encrypt_api_key(new_key, salt)
+            
+            # In a production environment, you would also update the N8N server's API key
+            # This is a simplified implementation
+            
             return {
                 "success": True,
-                "message": "Media detection requested",
-                "media_id": media_id
+                "api_key": new_key,
+                "expires": None,  # No expiration in this implementation
+                "generated": datetime.now().isoformat()
             }
         
         except Exception as e:
-            logger.error(f"Error requesting media detection: {e}")
-            return {"error": str(e)}
-    
-    def process_detection_callback(self, media_id: str, data: Dict[str, Any]) -> bool:
-        """
-        Process media detection callback from N8N
-        
-        Args:
-            media_id: ID of the media
-            data: Callback data
-            
-        Returns:
-            bool: True if processed successfully, False otherwise
-        """
-        try:
-            # Get media data
-            media = self.media_repo.get_by_id(media_id)
-            if not media:
-                logger.error(f"Media not found: {media_id}")
-                return False
-            
-            # Check if detection was successful
-            if not data.get("success", False):
-                logger.warning(f"Media detection failed for {media_id}: {data.get('error', 'Unknown error')}")
-                return False
-            
-            # Extract metadata
-            metadata = data.get("metadata", {})
-            if not metadata:
-                logger.warning(f"No metadata received for media {media_id}")
-                return False
-            
-            # Update media metadata
-            media.metadata.title = metadata.get("Title")
-            media.metadata.description = metadata.get("Plot")
-            media.metadata.year = int(metadata.get("Year", 0)) if metadata.get("Year", "").isdigit() else None
-            media.metadata.genre = metadata.get("Genre")
-            
-            # Handle specific media types
-            if "Type" in metadata:
-                if metadata["Type"].lower() == "movie":
-                    media.media_type = MediaType.MOVIE
-                elif metadata["Type"].lower() in ("series", "episode"):
-                    media.media_type = MediaType.TV_SHOW
-                    # Extract season and episode if possible
-                    if "Season" in metadata and metadata["Season"].isdigit():
-                        media.metadata.season = int(metadata["Season"])
-                    if "Episode" in metadata and metadata["Episode"].isdigit():
-                        media.metadata.episode = int(metadata["Episode"])
-            
-            # Save updated media
-            self.media_repo.save(media)
-            
-            logger.info(f"Updated metadata for media {media_id}")
-            return True
-        
-        except Exception as e:
-            logger.error(f"Error processing detection callback: {e}")
-            return False 
+            logger.error(f"Error rotating API key: {e}")
+            return {"success": False, "error": str(e)}
+
+
+# Helper functions for common operations
+def create_n8n_integration() -> MediaN8nIntegration:
+    """Create a new N8N integration instance with default settings"""
+    return MediaN8nIntegration(
+        n8n_url=config.n8n.url if hasattr(config, 'n8n') and hasattr(config.n8n, 'url') else None,
+        api_key=config.n8n.api_key if hasattr(config, 'n8n') and hasattr(config.n8n, 'api_key') else None,
+        webhook_secret=config.n8n.webhook_secret if hasattr(config, 'n8n') and hasattr(config.n8n, 'webhook_secret') else None
+    ) 

@@ -5,9 +5,15 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV TZ=UTC
 ENV DEBIAN_FRONTEND=noninteractive
+ENV APP_USER=nzb4
+ENV APP_UID=1000
+ENV APP_GID=1000
+ENV APP_DIR=/app
+ENV DATA_DIR=/data
+ENV DIR_MODE=750
 
 # Working directory
-WORKDIR /app
+WORKDIR ${APP_DIR}
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -28,21 +34,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install n8n globally
 RUN npm install -g n8n
 
+# Create non-root user and groups
+RUN groupadd -g ${APP_GID} ${APP_USER} && \
+    useradd -m -u ${APP_UID} -g ${APP_GID} -s /bin/bash ${APP_USER}
+
 # Copy requirements first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# Create necessary directories with proper permissions
+RUN mkdir -p ${DATA_DIR}/downloads ${DATA_DIR}/complete ${DATA_DIR}/temp \
+    ${DATA_DIR}/complete/movies ${DATA_DIR}/complete/tv ${DATA_DIR}/complete/music \
+    ${DATA_DIR}/complete/other ${DATA_DIR}/n8n ${DATA_DIR}/db && \
+    chown -R ${APP_USER}:${APP_USER} ${DATA_DIR} && \
+    chmod -R ${DIR_MODE} ${DATA_DIR}
 
-# Create necessary directories
-RUN mkdir -p /data/downloads /data/complete /data/temp /data/complete/movies /data/complete/tv /data/complete/music /data/complete/other /data/n8n
+# Copy application code
+COPY --chown=${APP_USER}:${APP_USER} . .
 
 # Make sure scripts are executable
-RUN chmod +x /app/scripts/*.sh
+RUN chmod +x ${APP_DIR}/scripts/*.sh
 
-# Run setup script
-RUN python -m nzb4.scripts.setup
+# Switch to non-root user
+USER ${APP_USER}
 
 # Expose ports
 # Web UI
@@ -55,7 +69,7 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Entrypoint script
-ENTRYPOINT ["/app/scripts/entrypoint.sh"]
+ENTRYPOINT ["scripts/entrypoint.sh"]
 
 # Default command
 CMD ["app"] 

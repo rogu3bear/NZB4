@@ -1,79 +1,82 @@
 version: '3.8'
 
 services:
-  nzb4:
+  # Flask API Service
+  flask-api:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: nzb4:latest
-    container_name: nzb4
-    restart: unless-stopped
+      dockerfile: Dockerfile.flask
+      # Pass host user's UID/GID to the container build to set correct permissions
+      # This helps ensure the container user can write to mapped volumes
+      args:
+        USER_UID: ${UID:-1000} # Default to 1000 if UID is not set on host
+        USER_GID: ${GID:-1000} # Default to 1000 if GID is not set on host
+    image: nzb4-flask-api:latest # Optional: Name the built image
+    container_name: nzb4-flask-api
     ports:
-      - "8000:8000"  # Web UI
-      - "5678:5678"  # N8N
+      - "5000:5000" # Map host port 5000 to container port 5000
     volumes:
-      - ./data:/data
-      - ./config.json:/app/config.json:ro
+      # Map host directories to container volumes for persistent data
+      # Ensure these host directories exist or change paths as needed
+      - ./complete:/complete # Maps local ./complete to /complete inside the container
+      - ./downloads:/downloads # Maps local ./downloads to /downloads inside the container
     environment:
-      - DOWNLOADS_DIR=/data/downloads
-      - COMPLETE_DIR=/data/complete
-      - TEMP_DIR=/data/temp
-      - MOVIES_DIR=/data/complete/movies
-      - TV_DIR=/data/complete/tv
-      - MUSIC_DIR=/data/complete/music 
-      - OTHER_DIR=/data/complete/other
-      - N8N_DATA_FOLDER=/data/n8n
-      - WEB_PORT=8000
-      - N8N_PORT=5678
-      - N8N_ENABLED=true
-      - TZ=UTC
-    networks:
-      - nzb4_network
+      # Runtime configuration overrides (optional)
+      - FLASK_APP=app.py
+      - FLASK_RUN_HOST=0.0.0.0
+      - OUTPUT_DIR=/complete
+      - DOWNLOAD_DIR=/downloads
+      # - FLASK_DEBUG=1 # Uncomment for debug mode (development only)
+    restart: unless-stopped # Restart policy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # Uses the healthcheck defined in Dockerfile.flask
+      test: ["CMD", "curl", "-f", "http://localhost:5000/status"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
-  nzb4-worker:
+  # Express.js API Service (TypeScript)
+  express-api:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: nzb4:latest
-    container_name: nzb4-worker
-    restart: unless-stopped
-    command: worker
+      dockerfile: Dockerfile.express
+      args:
+        USER_UID: ${UID:-1000}
+        USER_GID: ${GID:-1000}
+    image: nzb4-express-api:latest # Optional: Name the built image
+    container_name: nzb4-express-api
+    ports:
+      - "3000:3000" # Map host port 3000 to container port 3000
     volumes:
-      - ./data:/data
-      - ./config.json:/app/config.json:ro
+      # Map the same host directories for consistency
+      - ./complete:/complete
+      - ./downloads:/downloads
     environment:
-      - DOWNLOADS_DIR=/data/downloads
-      - COMPLETE_DIR=/data/complete
-      - TEMP_DIR=/data/temp
-      - MOVIES_DIR=/data/complete/movies
-      - TV_DIR=/data/complete/tv
-      - MUSIC_DIR=/data/complete/music 
-      - OTHER_DIR=/data/complete/other
-      - N8N_ENABLED=false
-      - TZ=UTC
-    networks:
-      - nzb4_network
-    depends_on:
-      - nzb4
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      # Runtime configuration overrides (optional)
+      - PORT=3000
+      - HOST=0.0.0.0
+      - OUTPUT_DIR=/complete
+      - DOWNLOAD_DIR=/downloads
+      # - LOG_LEVEL=debug # Uncomment for verbose logging
+      # - CORS_ORIGIN=http://localhost:8080 # Example CORS origin setting
+    restart: unless-stopped
+    healthcheck:
+      # Uses the healthcheck defined in Dockerfile.express
+      test: ["CMD", "curl", "-f", "http://localhost:3000/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# Define named volumes (alternative to host binds, if preferred)
+# volumes:
+#   complete_data:
+#   download_data:
+# If using named volumes, change the volume mappings above, e.g.:
+#   - complete_data:/complete
+#   - download_data:/downloads
 
 networks:
-  nzb4_network:
+  nzb4_net:
     driver: bridge
 
 volumes:

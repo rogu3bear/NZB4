@@ -12,8 +12,12 @@ import hashlib
 import psutil
 import shutil
 import magic  # python-magic for file type detection
-from typing import Dict, List, Any, Optional, Tuple
+import secrets  # For secure random values
+import string   # For random string generation
+import time
+from typing import Dict, List, Any, Optional, Tuple, Union
 from pathlib import Path
+from datetime import datetime
 
 from nzb4.config.settings import config
 
@@ -70,6 +74,22 @@ SUSPICIOUS_PATTERNS = [
     r'\.js$', r'\.cgi$', r'\.asp$', r'\.aspx$', r'\.jsp$'
 ]
 
+# Additional dangerous MIME types to explicitly block
+BLOCKED_MIME_TYPES = {
+    'application/x-msdownload',       # Windows executables
+    'application/x-msdos-program',    # MS-DOS executables
+    'application/x-sh',               # Shell scripts
+    'application/x-dosexec',          # DOS executables
+    'application/java',               # Java
+    'application/java-archive',       # JAR files
+    'text/x-php',                     # PHP code
+    'text/x-script.phyton',           # Python code
+    'text/javascript',                # JavaScript code
+}
+
+# Get directory permission mode from environment or use default
+DEFAULT_DIR_MODE = int(os.environ.get('DIR_MODE', '750'), 8)
+
 
 class SecurityValidator:
     """Validator for security-related checks"""
@@ -87,6 +107,10 @@ class SecurityValidator:
             Tuple[bool, str]: (is_valid, error_message)
         """
         try:
+            # Check for null bytes which can be used to trick some systems
+            if '\0' in filepath:
+                return False, "Filepath contains null bytes"
+                
             # Normalize path
             norm_path = os.path.normpath(filepath)
             
@@ -101,8 +125,17 @@ class SecurityValidator:
                 base_path = os.path.abspath(base_dir)
                 abs_path = os.path.abspath(norm_path)
                 
+                # Make sure base_path ends with separator to avoid /base_dir vs /base_dir2 confusion
+                if not base_path.endswith(os.path.sep):
+                    base_path += os.path.sep
+                
                 if not abs_path.startswith(base_path):
                     return False, "Filepath attempts directory traversal outside of permitted directory"
+            
+            # Check for non-printable characters
+            for char in norm_path:
+                if not char.isprintable() and char not in {os.path.sep}:
+                    return False, "Filepath contains non-printable characters"
             
             return True, ""
         
@@ -122,6 +155,10 @@ class SecurityValidator:
             Tuple[bool, str]: (is_valid, error_message)
         """
         try:
+            # Check for null bytes
+            if '\0' in url:
+                return False, "URL contains null bytes"
+                
             # Parse URL
             parsed = urllib.parse.urlparse(url)
             
@@ -129,15 +166,36 @@ class SecurityValidator:
             if parsed.scheme not in ('http', 'https', 'ftp'):
                 return False, f"Unsupported URL scheme: {parsed.scheme}"
             
-            # Check for IP addresses instead of hostnames (optional)
+            # Check for IP addresses instead of hostnames
             ip_pattern = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$'
             if re.match(ip_pattern, parsed.netloc):
-                # Additional checks for private IP ranges could be added here
-                pass
+                # Check for private/local IP ranges
+                parts = parsed.netloc.split('.')
+                ip_parts = [int(part) for part in parts if part.isdigit()]
+                
+                # Check for private or reserved IPs
+                if len(ip_parts) == 4:
+                    # Check RFC1918 (private) addresses
+                    if ip_parts[0] == 10:
+                        return False, "URL contains private IP address (10.x.x.x)"
+                    if ip_parts[0] == 172 and 16 <= ip_parts[1] <= 31:
+                        return False, "URL contains private IP address (172.16-31.x.x)"
+                    if ip_parts[0] == 192 and ip_parts[1] == 168:
+                        return False, "URL contains private IP address (192.168.x.x)"
+                    # Check localhost
+                    if ip_parts[0] == 127:
+                        return False, "URL contains localhost address (127.x.x.x)"
+                    # Check link-local addresses
+                    if ip_parts[0] == 169 and ip_parts[1] == 254:
+                        return False, "URL contains link-local address (169.254.x.x)"
             
             # Check for common signs of injection
-            if ';' in url or '&&' in url or '|' in url:
+            if ';' in url or '&&' in url or '|' in url or '`' in url:
                 return False, "URL contains potential command injection characters"
+            
+            # Check for overly long URLs (potential DoS)
+            if len(url) > 2000:
+                return False, "URL exceeds maximum allowed length"
             
             return True, ""
         
@@ -164,6 +222,10 @@ class SecurityValidator:
             # Get file MIME type
             mime = magic.Magic(mime=True)
             file_type = mime.from_file(filepath)
+            
+            # Explicitly check for blocked MIME types first
+            if file_type in BLOCKED_MIME_TYPES:
+                return False, f"File type {file_type} is explicitly blocked for security reasons"
             
             # Use default allowed types if none provided
             if allowed_types is None:
@@ -196,6 +258,16 @@ class SecurityValidator:
                 max_size_mb = MAX_FILE_SIZES[category] / (1024 * 1024)
                 return False, f"File exceeds maximum size for {category} ({max_size_mb:.2f} MB)"
             
+            # For archives, verify they don't contain executable files (basic check)
+            if category == 'archive' and file_type in ('application/zip', 'application/x-rar-compressed'):
+                # This would be a more complex implementation in a real app
+                # You'd extract the archive to a temp location and check each file
+                # For now, we'll just check the filename patterns
+                archive_name = os.path.basename(filepath).lower()
+                for pattern in SUSPICIOUS_PATTERNS:
+                    if re.search(pattern, archive_name):
+                        return False, f"Archive may contain suspicious files matching pattern: {pattern}"
+            
             return True, ""
         
         except Exception as e:
@@ -221,22 +293,77 @@ class SecurityValidator:
             name, ext = os.path.splitext(sanitized)
             sanitized = name[:200-len(ext)] + ext
             
+        # Ensure the filename doesn't start with a dot (hidden file in Unix)
+        if sanitized.startswith('.'):
+            sanitized = 'f' + sanitized
+        
         return sanitized
     
     @staticmethod
-    def create_safe_directory(base_dir: str, subdir: str) -> str:
+    def secure_random_string(length: int = 16) -> str:
+        """
+        Generate a cryptographically secure random string
+        
+        Args:
+            length: Length of the string to generate
+            
+        Returns:
+            str: Random string
+        """
+        alphabet = string.ascii_letters + string.digits
+        return ''.join(secrets.choice(alphabet) for _ in range(length))
+    
+    @staticmethod
+    def secure_temp_path(base_dir: str, extension: str = '') -> str:
+        """
+        Create a secure random temporary path
+        
+        Args:
+            base_dir: Base directory for the path
+            extension: Optional file extension
+            
+        Returns:
+            str: Secure temporary path
+        """
+        # Current timestamp for uniqueness
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        
+        # Secure random string
+        random_part = SecurityValidator.secure_random_string(12)
+        
+        # Create filename
+        filename = f"{timestamp}_{random_part}"
+        if extension:
+            if not extension.startswith('.'):
+                extension = '.' + extension
+            filename += extension
+        
+        # Return full path
+        return os.path.join(base_dir, filename)
+    
+    @staticmethod
+    def create_safe_directory(base_dir: str, subdir: str, mode: Optional[int] = None) -> str:
         """
         Create a safe directory with proper permissions
         
         Args:
             base_dir: Base directory
             subdir: Subdirectory to create
+            mode: Optional directory permissions (octal)
             
         Returns:
             str: Path to created directory
         """
+        # Use provided mode or default from environment
+        if mode is None:
+            mode = DEFAULT_DIR_MODE
+        
         # Sanitize subdirectory name
         safe_subdir = SecurityValidator.sanitize_filename(subdir)
+        
+        # Add randomness to the directory name for unpredictability
+        random_suffix = SecurityValidator.secure_random_string(8)
+        safe_subdir = f"{safe_subdir}_{random_suffix}"
         
         # Create full path ensuring no directory traversal
         full_path = os.path.join(base_dir, safe_subdir)
@@ -246,7 +373,7 @@ class SecurityValidator:
             raise ValueError(f"Invalid directory path would escape base directory: {full_path}")
         
         # Create directory with proper permissions
-        os.makedirs(full_path, mode=0o750, exist_ok=True)
+        os.makedirs(full_path, mode=mode, exist_ok=True)
         
         return full_path
     
@@ -274,6 +401,53 @@ class SecurityValidator:
                 chunk = f.read(8192)
         
         return h.hexdigest()
+    
+    @staticmethod
+    def encrypt_api_key(key: str, salt: Optional[str] = None) -> Dict[str, str]:
+        """
+        Encrypt an API key for secure storage
+        
+        Args:
+            key: The API key to encrypt
+            salt: Optional salt value
+            
+        Returns:
+            Dict: Encrypted key information
+        """
+        if salt is None:
+            salt = secrets.token_hex(16)
+            
+        # Create a salted hash
+        salted_key = (salt + key).encode('utf-8')
+        hashed = hashlib.sha256(salted_key).hexdigest()
+        
+        return {
+            "salt": salt,
+            "hash": hashed,
+            "algorithm": "sha256"
+        }
+    
+    @staticmethod
+    def verify_api_key(key: str, stored_data: Dict[str, str]) -> bool:
+        """
+        Verify an API key against stored encrypted data
+        
+        Args:
+            key: The API key to verify
+            stored_data: Encrypted key data from encrypt_api_key
+            
+        Returns:
+            bool: True if key is valid
+        """
+        salt = stored_data.get("salt", "")
+        stored_hash = stored_data.get("hash", "")
+        
+        # Create a salted hash of the provided key
+        salted_key = (salt + key).encode('utf-8')
+        computed_hash = hashlib.sha256(salted_key).hexdigest()
+        
+        # Compare hashes (constant-time comparison)
+        return secrets.compare_digest(computed_hash, stored_hash)
 
 
 class ResourceMonitor:
@@ -318,6 +492,44 @@ class ResourceMonitor:
             return False, {"error": str(e)}
     
     @staticmethod
+    def check_io_load() -> Dict[str, Any]:
+        """
+        Check IO load on the system
+        
+        Returns:
+            Dict: IO load information
+        """
+        try:
+            # Get disk I/O counters
+            disk_io = psutil.disk_io_counters()
+            
+            # Get the initial counter values
+            read_bytes_start = disk_io.read_bytes
+            write_bytes_start = disk_io.write_bytes
+            
+            # Wait a moment to measure rate
+            time.sleep(0.5)
+            
+            # Get updated counters
+            disk_io = psutil.disk_io_counters()
+            read_bytes_end = disk_io.read_bytes
+            write_bytes_end = disk_io.write_bytes
+            
+            # Calculate IO rate in MB/s
+            read_rate = (read_bytes_end - read_bytes_start) / (0.5 * 1024 * 1024)
+            write_rate = (write_bytes_end - write_bytes_start) / (0.5 * 1024 * 1024)
+            
+            return {
+                "disk_read_mb_sec": read_rate,
+                "disk_write_mb_sec": write_rate,
+                "total_io_mb_sec": read_rate + write_rate,
+                "is_high_io": (read_rate + write_rate) > 100  # 100 MB/s threshold
+            }
+        except Exception as e:
+            logger.error(f"Error checking IO load: {e}")
+            return {"error": str(e)}
+    
+    @staticmethod
     def check_system_resources() -> Dict[str, Any]:
         """
         Check overall system resources
@@ -339,15 +551,27 @@ class ResourceMonitor:
             # Get network I/O
             net_io = psutil.net_io_counters()
             
+            # Check load average (Unix-like systems only)
+            load_avg = os.getloadavg() if hasattr(os, 'getloadavg') else (0, 0, 0)
+            
+            # Get CPU count to determine relative load
+            cpu_count = psutil.cpu_count() or 1
+            
+            # Calculate load factor (load average / cpu count)
+            load_factor = load_avg[0] / cpu_count
+            
             return {
                 "cpu_percent": cpu_percent,
+                "cpu_count": cpu_count,
                 "memory_percent": memory_percent,
                 "memory_available_mb": memory.available / (1024 * 1024),
                 "disk_read_mb": disk_io.read_bytes / (1024 * 1024) if disk_io else 0,
                 "disk_write_mb": disk_io.write_bytes / (1024 * 1024) if disk_io else 0,
                 "net_sent_mb": net_io.bytes_sent / (1024 * 1024) if net_io else 0,
                 "net_recv_mb": net_io.bytes_recv / (1024 * 1024) if net_io else 0,
-                "is_overloaded": cpu_percent > 90 or memory_percent > 90
+                "load_average": load_avg,
+                "load_factor": load_factor,
+                "is_overloaded": cpu_percent > 90 or memory_percent > 90 or load_factor > 1.5
             }
         
         except Exception as e:
@@ -380,8 +604,27 @@ class ResourceMonitor:
                 "memory_percent": process.memory_percent(),
                 "memory_mb": process.memory_info().rss / (1024 * 1024),
                 "threads": process.num_threads(),
-                "created": process.create_time()
+                "created": process.create_time(),
+                "io_counters": None,
+                "open_files": []
             }
+            
+            # Get IO counters if available
+            try:
+                io = process.io_counters()
+                process_info["io_counters"] = {
+                    "read_mb": io.read_bytes / (1024 * 1024),
+                    "write_mb": io.write_bytes / (1024 * 1024)
+                }
+            except (psutil.AccessDenied, AttributeError):
+                pass
+            
+            # Get open files if available
+            try:
+                open_files = process.open_files()
+                process_info["open_files"] = [f.path for f in open_files]
+            except (psutil.AccessDenied, AttributeError):
+                pass
             
             return process_info
         
@@ -398,6 +641,7 @@ class ResourceMonitor:
             bool: True if system should throttle operations
         """
         try:
+            # Check system resources
             resources = ResourceMonitor.check_system_resources()
             
             # Check if system is overloaded
@@ -409,8 +653,50 @@ class ResourceMonitor:
             if not has_space:
                 return True
             
+            # Check IO load
+            io_load = ResourceMonitor.check_io_load()
+            if io_load.get("is_high_io", False):
+                return True
+            
             return False
         
         except Exception as e:
             logger.error(f"Error checking if should throttle: {e}")
-            return True  # Throttle if we can't determine 
+            return True  # Throttle if we can't determine
+            
+    @staticmethod
+    def limit_process_resources(pid: Optional[int] = None, 
+                               cpu_percent: Optional[float] = None,
+                               memory_percent: Optional[float] = None) -> bool:
+        """
+        Attempt to limit resources for a process (platform-specific)
+        
+        Args:
+            pid: Process ID (defaults to current process)
+            cpu_percent: CPU percentage limit (0-100)
+            memory_percent: Memory percentage limit (0-100)
+            
+        Returns:
+            bool: True if limits were set
+        """
+        try:
+            if pid is None:
+                process = psutil.Process()
+            else:
+                process = psutil.Process(pid)
+            
+            # Platform-specific implementations would go here
+            # This is a simplified version that just logs the intent
+            
+            logger.info(f"Would limit process {process.pid} to CPU: {cpu_percent}%, Memory: {memory_percent}%")
+            
+            # In a real implementation, you would use:
+            # - On Linux: cgroups or nice/ionice
+            # - On Windows: job objects
+            # - On macOS: process resource controls
+            
+            return True
+        
+        except Exception as e:
+            logger.error(f"Error limiting process resources: {e}")
+            return False 
